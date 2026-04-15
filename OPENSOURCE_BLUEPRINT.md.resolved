@@ -1,0 +1,393 @@
+# 开源项目架构蓝图
+
+> 本文档记录了开源项目的所有设计决策，是新项目开发的唯一权威参考。
+> 生成时间：2026-04-12
+> 源对话：thiflow-agent-v2 开源策略讨论
+
+---
+
+## 一、战略目标
+
+### 为什么要开源
+
+1. **风险转移**：将"我们 vs 微信"变成"开源社区 vs 微信"，降低 RPA 被管控的风险
+2. **商业价值保留**：AI 智能回复服务作为可选的付费插件售卖
+3. **社区杠杆**：借助社区力量完善客户端，我们专注后端 AI 引擎
+
+### 核心原则
+
+- 开源项目必须**独立可用**——用户只填一个 API Key 就能跑，不依赖任何后端服务
+- 开源项目里**不能出现任何我们商业服务的代码/URL/品牌**
+- 我们的商业服务通过**外部插件**接入，不内置在开源仓库中
+- v0.1 追求"诚实的最小可用品"，不追求完美架构
+
+---
+
+## 二、架构设计
+
+### 整体分层
+
+```
+开源客户端
+├── Electron Main Process          ← 窗口管理、原生模块
+├── Preload                        ← IPC 桥
+├── Renderer (React)               ← 新设计的 UI
+└── Core                           ← 核心逻辑
+    ├── AgentHooks 接口定义         ← 插件系统的契约
+    ├── LocalHooks 内置实现         ← Local Mode（随项目发布）
+    ├── DesktopDevice 接口          ← 设备操控抽象（借鉴 AutoGLM）
+    ├── DesktopDevice 实现          ← robotjs/screenshot/opencv wrapper
+    ├── Engine                     ← 主引擎循环（async/await）
+    └── AI Client                  ← Vercel AI SDK 封装
+```
+
+### 不采用的架构（及原因）
+
+| 不采用 | 原因 |
+|--------|------|
+| Shell + Biz + Renderer 三层热更新 | 开源用户自己 clone build，不需要热更新。未来需要时可加回 |
+| OEM 多租户 | 商业需求，与开源无关 |
+| RxJS 引擎状态机 | Local Mode 用 async/await 足够。插件如需复杂调度自行携带 |
+| 内置 Cloud Mode | 会暴露商业后端协议，且让项目看起来是"伪开源"。必须通过插件接入 |
+| Provider 模式 | 过度设计。用 Hook 接口 + 插件系统更简单直接 |
+
+---
+
+## 三、核心接口定义
+
+### AgentHooks — 插件系统的契约
+
+这是整个架构最关键的接口。所有插件（包括未来我们的商业插件）都实现这个接口。
+
+```typescript
+// src/core/hooks.ts
+
+export interface AgentHooks {
+  // === 生命周期 ===
+  onEngineStart?(): Promise<void>
+  onEngineStop?(): Promise<void>
+
+  // === 被动：检测到新消息后，决定怎么回复 ===
+  getReply(context: MessageContext): AsyncIterable<ReplyAction>
+
+  // === 主动：外部触发执行一组操作 ===
+  executeActions?(params: {
+    actions: ActionItem[]
+    targets?: string[]
+  }): AsyncIterable<ActionResult>
+
+  // === 调度：外部系统注册触发器（定时任务等） ===
+  onExternalTrigger?(callback: (params: {
+    actions: ActionItem[]
+    targets?: string[]
+  }) => void): void
+
+  // === 回调 ===
+  onActionComplete?(action: ActionItem, result: { success: boolean }): void
+  onError?(error: Error, phase: string): void
+}
+
+// 通用消息上下文
+export interface MessageContext {
+  screenshot: string        // base64 截图
+  currentContact?: string   // 当前对话人
+  ocrText?: string          // OCR 识别文字
+}
+
+// 通用回复动作（不暴露任何后端私有协议）
+export type ReplyAction =
+  | { type: 'text'; content: string }
+  | { type: 'image'; url: string }
+  | { type: 'thinking'; content: string }
+  | { type: 'skip' }
+
+// 通用执行动作
+export type ActionItem =
+  | { type: 'text'; content: string }
+  | { type: 'image'; url: string }
+  | { type: 'search_contact'; name: string }
+  | { type: 'wait'; ms: number }
+```
+
+### DesktopDevice — 设备操控抽象
+
+借鉴 AutoGLM 的 Action 原语层设计，将 rpa-utils.ts（5920行）的能力抽象为干净的接口。
+
+```typescript
+// src/core/device.ts
+
+export interface DesktopDevice {
+  // === 感知层（Perception）===
+  screenshot(): Promise<string>
+  ocr(region?: BBox): Promise<string>
+  findWindow(appName: string): Promise<WindowInfo | null>
+  detectLayout(): Promise<LayoutInfo>
+  hasUnreadMessage(): Promise<boolean>
+
+  // === 操控层（Action Primitives）===
+  click(x: number, y: number): Promise<void>
+  type(text: string): Promise<void>
+  paste(text: string): Promise<void>
+  keyCombo(...keys: string[]): Promise<void>
+  focusWindow(appName: string): Promise<void>
+
+  // === 高级操作（Composed Actions）===
+  sendMessage(text: string): Promise<void>
+  searchContact(name: string): Promise<boolean>
+  switchConversation(name: string): Promise<boolean>
+}
+
+export interface BBox {
+  x: number; y: number; width: number; height: number
+}
+
+export interface WindowInfo {
+  title: string
+  bounds: BBox
+  processId: number
+}
+```
+
+**v0.1 实现策略**：定义接口 + 写 wrapper 调用旧项目搬过来的 rpa-utils 函数。不重构内部实现。
+
+---
+
+## 四、引擎循环
+
+v0.1 使用简单的 async/await 循环，不使用 RxJS。
+
+```typescript
+// src/core/engine.ts
+
+export class Engine {
+  private running = false
+
+  constructor(
+    private hooks: AgentHooks,
+    private device: DesktopDevice
+  ) {}
+
+  async start() {
+    this.running = true
+    await this.hooks.onEngineStart?.()
+
+    // 注册外部触发器（如果 hooks 实现了的话）
+    this.hooks.onExternalTrigger?.((params) => {
+      this.executeExternalActions(params)
+    })
+
+    while (this.running) {
+      try {
+        if (await this.device.hasUnreadMessage()) {
+          const screenshot = await this.device.screenshot()
+          const ocrText = await this.device.ocr()
+
+          for await (const action of this.hooks.getReply({
+            screenshot, ocrText
+          })) {
+            if (!this.running) break
+            await this.executeAction(action)
+          }
+        }
+      } catch (e) {
+        this.hooks.onError?.(e as Error, 'engine_loop')
+      }
+
+      await this.sleep(3000 + Math.random() * 2000)
+    }
+
+    await this.hooks.onEngineStop?.()
+  }
+
+  stop() { this.running = false }
+
+  private async executeAction(action: ReplyAction) {
+    if (action.type === 'text') {
+      await this.device.sendMessage(action.content)
+      this.hooks.onActionComplete?.(action, { success: true })
+    } else if (action.type === 'thinking') {
+      // 通知 UI 显示思考状态
+    }
+  }
+
+  private async executeExternalActions(params: {
+    actions: ActionItem[], targets?: string[]
+  }) {
+    if (this.hooks.executeActions) {
+      for await (const result of this.hooks.executeActions(params)) {
+        // 处理结果
+      }
+    }
+  }
+
+  private sleep(ms: number) {
+    return new Promise(r => setTimeout(r, ms))
+  }
+}
+```
+
+---
+
+## 五、AI 调用
+
+使用 **Vercel AI SDK**（`ai` npm 包），不自己写 HTTP/SSE 解析。
+
+好处：
+- 一次代码支持 20+ 模型提供商（豆包、OpenAI、Claude、Gemini、Ollama...）
+- 流式返回内置
+- 行业标准，给开源项目加分
+
+```typescript
+// src/core/ai-client.ts
+import { streamText } from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
+
+export function createAIClient(config: {
+  apiKey: string
+  model: string
+  baseURL?: string
+}) {
+  const provider = createOpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseURL
+  })
+  return provider(config.model)
+}
+```
+
+豆包接入方式：使用 `@ai-sdk/openai` + 自定义 baseURL 指向豆包 endpoint：
+```
+baseURL: https://ark.cn-beijing.volces.com/api/v3
+```
+
+---
+
+## 六、从旧项目（thiflow-agent-v2）迁移的代码
+
+### 直接搬迁（几乎无改动）~8000 行
+
+| 旧文件 | 行数 | 新位置 | 说明 |
+|--------|------|--------|------|
+| `rpa-utils.ts` | 5920 | `src/core/rpa/` | 去掉 shiflow API 调用，保留所有 RPA 函数 |
+| `screenshot-utils.ts` | 563 | `src/core/rpa/` | 零改动 |
+| `window-utils.ts` | 352 | `src/core/rpa/` | 零改动 |
+| `detect.ts` | 815 | `src/core/rpa/` | 零改动 |
+| `image-compare.ts` | 150 | `src/core/rpa/` | 零改动 |
+| `permission.ts` | 170 | `src/core/rpa/` | 零改动 |
+
+### 不迁移 ~40000 行
+
+| 旧文件 | 原因 |
+|--------|------|
+| `handlers.ts` (3944行) | 全是后端 API 调用，用 Hook 替代 |
+| `engine.ts` + `engine-rx.ts` | 用新的 async/await 引擎替代 |
+| `stream-manager.ts` | RxJS 流式管理，不需要 |
+| `config.ts` | shiflow API 域名配置，不需要 |
+| `whatsapp-rpa.ts` | v0.1 只做微信 |
+| `biz-loader.ts` | 热更新加载器，不需要 |
+| `hot-updater.ts` | 热更新，不需要 |
+| `trace-logger.ts` | 远程日志上传，不需要 |
+| 所有 OEM 相关代码 | 不需要 |
+| 旧 UI（renderer/src/） | 全新 UI |
+
+---
+
+## 七、插件系统规划
+
+### v0.1：不实现插件系统
+- 只有 Local Mode（内置的 LocalHooks）
+- AgentHooks 接口设计好，为插件留路
+
+### v0.2：插件市场（类似 VSCode 扩展）
+
+用户体验：
+1. 打开 App → 设置 → 插件中心
+2. 看到可用插件列表（从 registry 拉取）
+3. 点"安装" → App 自动下载、解压、加载
+4. 无需用户碰文件系统
+
+技术实现（v0.2 时再细化）：
+- 插件打包为 `.zip`，包含 `manifest.json` + JS 入口文件
+- Plugin Registry：一个 JSON endpoint，列出可用插件
+- 加载机制：下载到 `userData/plugins/`，`require()` 动态加载
+- 插件实现 `AgentHooks` 接口
+
+### 我们的商业插件（不在开源仓库里）
+
+独立仓库、独立分发。安装后：
+- 接管 `getReply` → 连接我们的 WS 后端（adapter 翻译协议）
+- 实现 `onExternalTrigger` → 接收定时任务推送
+- 实现 `executeActions` → 支持手动发送
+- 在插件 UI 里提供独立的任务配置页面（类似 Coze）
+- 我们的后端一行不改，adapter 层吸收所有差异
+
+---
+
+## 八、v0.1 三天执行计划
+
+### Day 1：项目骨架 + RPA 内核
+- [ ] 新建 GitHub 仓库
+- [ ] electron-vite 初始化
+- [ ] 定义 `AgentHooks` + `DesktopDevice` 接口
+- [ ] 从旧项目搬迁 RPA 内核（~8000 行）
+- [ ] 实现 `DesktopDevice` wrapper
+- [ ] 实现 `LocalHooks`（用 Vercel AI SDK）
+- [ ] 实现 Engine 循环
+- [ ] 验证：填 API Key → 检测新消息 → AI 回复 → 自动输入
+
+### Day 2：新 UI
+- [ ] 设置页（API Key 配置、模型选择、系统提示词）
+- [ ] 主控面板（开始/停止 + 消息流显示）
+- [ ] 关于页
+- [ ] 国际化（中/英）
+
+### Day 3：打磨 + 发布
+- [ ] README（一句话介绍 + 3 步快速开始 + 截图/GIF + Roadmap）
+- [ ] License 选择（推荐 AGPL-3.0）
+- [ ] 清理代码，确保零品牌残留
+- [ ] macOS + Windows 构建
+- [ ] GitHub Release 发布
+
+### v0.1 不做的事（诚实写在 README Roadmap 里）
+
+- [ ] v0.2 — 插件系统（类 VSCode 扩展市场）
+- [ ] v0.2 — 定时任务、主动发送
+- [ ] v0.2 — 多模型切换 UI
+- [ ] v0.3 — 企业微信支持
+- [ ] v0.3 — WhatsApp 支持
+
+---
+
+## 九、技术选型总结
+
+| 维度 | 选型 | 替代方案（未来可切换） |
+|------|------|----------------------|
+| 框架 | Electron + electron-vite | - |
+| UI | React（设计系统待定） | - |
+| AI SDK | Vercel AI SDK (`ai`) | 可替换为其他 SDK |
+| 状态管理 | async/await 简单循环 | 可升级为 RxJS |
+| 构建/打包 | electron-builder | - |
+| 原生控制 | robotjs + active-win + get-windows | - |
+| 视觉 | opencv-js + jimp + pixelmatch | - |
+| 存储 | electron-store | 可升级为 SQLite |
+
+---
+
+## 十、命名待定
+
+- [ ] 项目名称
+- [ ] npm 包名
+- [ ] GitHub 仓库 URL
+- [ ] License（推荐 AGPL-3.0）
+
+---
+
+## 附录：旧项目关键参考
+
+- 旧仓库：`git@github.com:shiflow2023/thiflow-agent-v2.git`
+- 本地路径：`/Users/yuguangzheng/projects/thiflow-agent-v2`
+- 当前分支：`feat/rxjs-refactor`
+- 旧项目总行数：~48,000 行 TypeScript
+- 旧 RPA 核心模块：`src/biz/main/rpa-utils.ts` (5920行)
+- 旧 Bridge 接口：`src/biz/types.ts` (82行)
+- 旧多平台支持：`src/biz/main/types/app-type.ts` (91行)

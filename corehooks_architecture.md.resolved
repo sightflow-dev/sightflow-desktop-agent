@@ -1,0 +1,43 @@
+# 核心 Hooks 架构 (开源蓝图版)
+
+根据《开源项目架构蓝图》(OPENSOURCE_BLUEPRINT.md.resolved)，当前 `sightflow-agent` 的核心设计思路彻底抛弃了旧项目沉重的流管理和后端耦合层。我们采用的是一套 **面向接口和插件化** 的精简架构，其核心正是 **[AgentHooks + DesktopDevice + Engine]** 的铁三角模型。
+
+## 1. 核心契约：AgentHooks (驱动引擎的大脑)
+这是整个开源项目和未来的商业插件系统赖以生存的**唯一契约**。它把 "遇到了什么消息" 和 "如何做出反应" 彻底抽象出来了。
+
+在这个体系下，所有的 AI 推理、后端通讯均作为“插件”接入。
+
+### 特征与能力设计
+*   **生命周期回调**：`onEngineStart`, `onEngineStop`。
+*   **被动响应 (核心)**：`getReply(context)`。
+    *   引擎把感知到的 `MessageContext`（包含截图 `screenshot`、识别文本 `ocrText` 等）喂给 Hook，Hook 决定采取何种策略（回复文字内容、思考中、跳过）。
+*   **主动执行**：`executeActions` 与 `onExternalTrigger`，为未来注册外部定时任务或手动执行留下切入点。
+
+> v0.1 将提供一份 **内置的 `LocalHooks`**。它内部将封装 **Vercel AI SDK**（连接到豆包/OpenAI 等提供商），实现完全在本地走大模型 API 进行决断的纯粹 Local Mode。
+
+## 2. 操作原语抽象：DesktopDevice (操作设备的手眼)
+为摆脱旧项目里 `rpa-utils.ts` 等直接通过胶水代码混合调用的“烂摊子”，我们将采用类似 AutoGLM 的操作原语抽象：
+
+*   **感知层 (Perception)**:
+    *   纯获取信息能力：`screenshot()`, `ocr()`, `findWindow()`, `detectLayout()`, `hasUnreadMessage()`。
+*   **操控层 (Action Primitives)**:
+    *   纯执行原子能力：`click()`, `type()`, `paste()`, `keyCombo()`, `focusWindow()`。
+*   **组装操作 (Composed Actions)**:
+    *   基于前述两者的复合动作：如 `sendMessage()`, `searchContact()`。
+
+**原则**：`AgentHooks` 绝对不能直接调用 `window-utils.ts` 或是 `robotjs`。它只能告诉上层引擎要做什么（产出 `ReplyAction`），或者通过上层注入的更纯粹的动作流。
+
+## 3. 极简驱动：Engine 引擎主循环
+我们通过彻底抛弃庞大复杂的 RxJS 状态机，回归并采用纯粹清晰的 `async/await` 异步控制流：
+
+1. **引擎初始化**：拿 `DesktopDevice` 和 `AgentHooks` 拼装。 
+2. **感知**：轮询 `device.hasUnreadMessage()`。
+3. **决策**：如果感知有新消息，获取 `device.screenshot()` 丢入 `hooks.getReply()`。
+4. **行动**：解析得到的 `ReplyAction`（如 `'text'` 类型），进而调用 `device.sendMessage()` 执行并完成一轮。
+5. **休眠与重试**：`sleep(3000 ~ 5000ms)`，无限轮询，直至停止。
+
+---
+
+## 为什么要这么干？
+1. **彻底解耦**：如果你只需要一个简单的 LLM API 本地回复机器人，核心流完全不需要关心业务方到底在用啥模型或者什么定时任务，只需要对接协议。
+2. **支持未来的插件化生态**：我们未来商业化的高级功能（更复杂的私有协议通讯、专属定时流等），只要打个包并且“实现 AgentHooks 并挂载它”就行了。商业代码与开源基础库干净利落地完成了物理隔离。
