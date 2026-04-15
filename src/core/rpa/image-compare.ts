@@ -5,8 +5,15 @@
 // - diff 预筛：chatMainArea 没变化就不触发后续检测
 // - 快捷键验证：切换未读后 diff 确认是否生效
 
-import pixelmatch from 'pixelmatch'
+import _pixelmatch from 'pixelmatch'
 import { PNG } from 'pngjs'
+
+// pixelmatch v7 是纯 ESM 包，Rollup CJS interop 可能把 module 对象当 default export
+// 运行时 fallback：如果不是函数就取 .default
+const pixelmatch: typeof _pixelmatch =
+  typeof _pixelmatch === 'function'
+    ? _pixelmatch
+    : ((_pixelmatch as any).default as typeof _pixelmatch)
 
 export interface CompareResult {
   /** 是否有变化 */
@@ -74,7 +81,7 @@ export function compareImages(
   const diffPixelCount = pixelmatch(
     png1.data as unknown as Uint8Array,
     png2.data as unknown as Uint8Array,
-    null, // 不生成 diff 图
+    undefined, // 不生成 diff 图
     width,
     height,
     { threshold }
@@ -102,4 +109,80 @@ export function hasImageChanged(
   changeThreshold = 0.5
 ): boolean {
   return compareImages(img1, img2, { changeThreshold }).hasChanged
+}
+
+// ── chatMainArea Diff 检测 ──
+//
+// 参考 whatsapp-agent-demo 的 checkChatDiffForAssistMode
+// 用途：回复结束后轮询 chatMainArea 截图差异，发现界面变化说明有新消息
+
+import { AppType } from './types'
+import { captureChatMainArea } from './screenshot-utils'
+
+/** baseline 截图（内存，app 关闭后丢失） */
+let chatBaseline: Electron.NativeImage | null = null
+
+/** 保存当前 chatMainArea 截图作为 baseline */
+export async function setChatBaseline(appType: AppType): Promise<boolean> {
+  const screenshot = await captureChatMainArea(appType)
+  if (screenshot) {
+    chatBaseline = screenshot
+    console.log('[ChatDiff] baseline 已设置')
+    return true
+  }
+  console.warn('[ChatDiff] baseline 设置失败：截图为空')
+  return false
+}
+
+/** 清除 baseline */
+export function clearChatBaseline(): void {
+  chatBaseline = null
+}
+
+/** 是否有 baseline */
+export function hasChatBaseline(): boolean {
+  return chatBaseline !== null
+}
+
+/**
+ * 检查 chatMainArea 是否有变化（和 baseline 对比）
+ *
+ * 流程（对齐 whatsapp-agent-demo 的 checkChatDiffForAssistMode）：
+ * 1. 无 baseline → 返回无变化
+ * 2. 截图当前 chatMainArea
+ * 3. pixelmatch 对比
+ * 4. 有差异 → 返回 hasDiff: true
+ */
+export async function checkChatAreaDiff(appType: AppType): Promise<{
+  hasDiff: boolean
+  hasBaseline: boolean
+}> {
+  if (!chatBaseline) {
+    console.log('[ChatDiff] 无 baseline，无法对比')
+    return { hasDiff: false, hasBaseline: false }
+  }
+
+  const current = await captureChatMainArea(appType)
+  if (!current) {
+    console.log('[ChatDiff] 截图失败，继续轮询')
+    return { hasDiff: false, hasBaseline: true }
+  }
+
+  const result = compareImages(chatBaseline, current, {
+    threshold: 0.1,
+    changeThreshold: 0.5
+  })
+
+  console.log('[ChatDiff] 对比结果:', {
+    hasChanged: result.hasChanged,
+    diffPercentage: `${result.diffPercentage}%`,
+    identical: result.identical
+  })
+
+  if (result.hasChanged && !result.identical) {
+    // 有差异 → baseline 不清空，processCurrentChat 之后会重新 setChatBaseline 覆盖
+    return { hasDiff: true, hasBaseline: true }
+  }
+
+  return { hasDiff: false, hasBaseline: true }
 }

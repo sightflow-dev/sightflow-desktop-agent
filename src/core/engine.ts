@@ -76,6 +76,7 @@ export class Engine {
 
   stop() {
     this.running = false
+    this.device.clearChatBaseline()
   }
 
   isRunning() {
@@ -85,7 +86,7 @@ export class Engine {
   // ── Step 3+4: 发图 → 回复 ──
 
   /**
-   * 处理当前对话：截图 → AI 分析 → RPA 执行回复
+   * 处理当前对话：截图 → AI 分析 → RPA 执行回复 → 设置 diff baseline
    */
   private async processCurrentChat() {
     // 发图
@@ -97,19 +98,32 @@ export class Engine {
       if (!this.running) break
       await this.executeAction(action)
     }
+
+    // 回复完成后，保存 chatMainArea 截图作为 diff baseline
+    // 这样后续轮询时可以检测当前对话窗口是否有新消息
+    if (this.running) {
+      await this.device.setChatBaseline()
+    }
   }
 
-  // ── Step 5: 纯视觉红点检测 → 点击激活 → 点击联系人 ──
+  // ── Step 5: 双通道检测（红点 + chatMainArea diff） ──
 
   /**
-   * 等待下一条未读消息（纯视觉路线，参考 whatsapp-agent-demo 的 receiveNewNessageRPA）
+   * 等待下一条消息（红点检测 + chatMainArea diff 双通道并行）
    *
-   * 流程:
-   * 1. 粗检测：检测聊天入口红点（hasUnreadMessage）
-   * 2. 如果有未读 → 点击红点区域激活未读列表（activeUnreadByClick）
-   * 3. 细检测：检测联系人头像红点（isChatContactUnread）
-   * 4. 如果联系人有红点 → 点击联系人进入对话（clickUnreadContact）
-   * 5. 失败时有重试 + 缓存清除机制
+   * 通道 1 — 红点检测：检测左侧列表的未读角标（其他联系人发消息）
+   * 通道 2 — chatMainArea diff：检测当前对话窗口是否有变化（当前联系人发消息）
+   *
+   * 为什么需要双通道：
+   * - 红点检测只能发现 **其他联系人** 的新消息（左侧列表出现红点）
+   * - 但 **当前打开的对话** 收到新消息时，左侧不会出现红点
+   * - chatMainArea diff 弥补了这个盲点
+   *
+   * 流程：
+   * 1. 每轮轮询先检查 chatMainArea diff
+   * 2. diff 有变化 → 直接 return（当前对话有新消息，回到 processCurrentChat）
+   * 3. diff 无变化 → 检查红点
+   * 4. 红点有未读 → 视觉点击切换联系人 → return
    */
   private async waitForNextUnread() {
     while (this.running) {
@@ -118,11 +132,20 @@ export class Engine {
 
       if (!this.running) break
 
-      // ── Step 1: 粗检测红点 ──
+      // ── 通道 2: chatMainArea diff 检测 ──
+      const diffResult = await this.device.hasChatAreaChanged()
+
+      if (diffResult.hasDiff) {
+        this.emitLog('thinking', '检测到当前对话有新消息（chatMainArea diff）')
+        // 当前对话有变化 → 直接回到 processCurrentChat
+        return
+      }
+
+      // ── 通道 1: 粗检测红点 ──
       const unreadResult = await this.device.hasUnreadMessage()
 
       if (!unreadResult.hasUnread) {
-        // 没有未读，继续轮询
+        // 两个通道都没有新消息，继续轮询
         continue
       }
 
@@ -208,6 +231,9 @@ export class Engine {
       this.emitLog('thinking', `点击联系人 (${firstContactCoords[0]}, ${firstContactCoords[1]})`)
       await this.device.clickUnreadContact(firstContactCoords)
       await this.sleep(500 + Math.random() * 300)
+
+      // 切换了联系人 → 清除旧 baseline（新对话需要新的 baseline）
+      this.device.clearChatBaseline()
 
       // 成功切换 → 回到主循环 processCurrentChat
       return

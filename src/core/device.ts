@@ -48,6 +48,25 @@ export interface DesktopDevice {
    */
   clearUnreadCache(): void
 
+  // ── chatMainArea Diff 检测 ──
+
+  /**
+   * 保存当前 chatMainArea 截图作为 diff baseline
+   * 在 processCurrentChat 回复完成后调用
+   */
+  setChatBaseline(): Promise<boolean>
+
+  /**
+   * 检查 chatMainArea 是否有变化（和 baseline 对比）
+   * 发现变化说明当前对话有新消息进来
+   */
+  hasChatAreaChanged(): Promise<{ hasDiff: boolean; hasBaseline: boolean }>
+
+  /**
+   * 清除 diff baseline
+   */
+  clearChatBaseline(): void
+
   // ── 动作层 ──
 
   /** 发送消息（clipboard paste + enter） */

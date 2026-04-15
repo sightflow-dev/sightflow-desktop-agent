@@ -3,7 +3,6 @@ import { desktopCapturer } from 'electron'
 import { getWindowInfo, getWechatWindowInfo } from './window-utils'
 import { AppType } from './types'
 
-const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
 
 interface ScreenshotCache {
@@ -163,8 +162,60 @@ export async function captureWechatWindow(
 
     if (!captureResult) return { success: false, error: '截图失败', display }
     
-    return { success: true, screenshotBase64: captureResult.screenshotBase64, bounds: captureResult.bounds, display: captureResult.display }
+    return { success: true, screenshotBase64: captureResult.screenshotBase64, nativeImage: captureResult.nativeImage, bounds: captureResult.bounds, display: captureResult.display }
   } catch (err: any) {
     return { success: false, error: err.message }
+  }
+}
+
+/**
+ * 截图 chatMainArea 区域，返回 NativeImage
+ *
+ * 从 LayoutCache 获取 chatMainArea.bbox → 计算 crop 区域 → 局部截图
+ * 用于 diff 检测：对比前后两张 chatMainArea 截图判断是否有新消息
+ */
+export async function captureChatMainArea(
+  appType: AppType
+): Promise<Electron.NativeImage | null> {
+  try {
+    // 延迟导入避免循环引用
+    const { getLayoutCache, bboxToCropBounds } = await import('./vision-utils')
+
+    const layout = getLayoutCache(appType)
+    if (!layout?.chatMainArea?.bbox) {
+      console.log('[captureChatMainArea] 未找到 chatMainArea 缓存')
+      return null
+    }
+
+    const windowInfo = await getWindowInfo(appType, false)
+    if (!windowInfo?.bounds) {
+      console.log('[captureChatMainArea] 获取窗口信息失败')
+      return null
+    }
+
+    // 从归一化 bbox (0-1000) 计算出 crop 区域（逻辑像素）
+    const cropBounds = bboxToCropBounds(layout.chatMainArea.bbox, windowInfo.bounds)
+    const crop = {
+      x: cropBounds.x,
+      y: cropBounds.y,
+      width: cropBounds.width,
+      height: cropBounds.height
+    }
+
+    const screenshotResult = await captureWechatWindow(appType, crop)
+    if (!screenshotResult.success) {
+      console.log('[captureChatMainArea] 截图失败:', screenshotResult.error)
+      return null
+    }
+
+    if (screenshotResult.nativeImage) {
+      return screenshotResult.nativeImage
+    }
+
+    console.log('[captureChatMainArea] 截图结果无 nativeImage')
+    return null
+  } catch (error: any) {
+    console.error('[captureChatMainArea] 异常:', error)
+    return null
   }
 }

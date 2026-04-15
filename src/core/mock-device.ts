@@ -7,10 +7,8 @@ import { AppType } from './rpa/types'
 import { BBox } from './rpa/vision-utils'
 
 export class MockDevice implements DesktopDevice {
-  private appType: AppType = 'weixin'
-
-  setAppType(appType: AppType): void {
-    this.appType = appType
+  setAppType(_appType: AppType): void {
+    // Mock 不依赖窗口类型
   }
 
   setApiKey(_apiKey: string): void {
@@ -51,6 +49,20 @@ export class MockDevice implements DesktopDevice {
 
   clearUnreadCache(): void {
     console.log('[MockDevice] 清除未读缓存（模拟）')
+  }
+
+  async setChatBaseline(): Promise<boolean> {
+    console.log('[MockDevice] 设置 chatMainArea baseline（模拟）')
+    return true
+  }
+
+  async hasChatAreaChanged(): Promise<{ hasDiff: boolean; hasBaseline: boolean }> {
+    // Mock: 10% 概率检测到变化
+    return { hasDiff: Math.random() > 0.9, hasBaseline: true }
+  }
+
+  clearChatBaseline(): void {
+    console.log('[MockDevice] 清除 chatMainArea baseline（模拟）')
   }
 
   async sendMessage(text: string): Promise<void> {

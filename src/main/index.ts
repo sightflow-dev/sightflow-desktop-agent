@@ -7,7 +7,6 @@ import Store from 'electron-store'
 import { Engine } from '../core/engine'
 import { LocalHooks } from '../core/local-hooks'
 import { AIClient } from '../core/ai-client'
-import { MockDevice } from '../core/mock-device'
 import { RPADevice } from '../core/rpa-device'
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 const settingsStore = new StoreClass({
@@ -87,7 +86,7 @@ app.whenReady().then(async () => {
   })
 
   // ── Engine 操控 ──
-  ipcMain.handle('engine:start', async (event, config) => {
+  ipcMain.handle('engine:start', async (_event, config) => {
     if (engine?.isRunning()) return { success: false, error: '引擎已在运行中' }
     try {
       localHooks = new LocalHooks({
@@ -161,6 +160,14 @@ app.whenReady().then(async () => {
       console.error('Screen capture failed:', error)
       return null
     }
+  })
+
+  // ── 测试入口：VLM 并行 vs 串行 ──
+  ipcMain.handle('test:vlm-parallel', async () => {
+    const apiKey = settingsStore.get('apiKey') as string
+    if (!apiKey) return { error: '请先在设置中填写 API Key' }
+    const { runVlmParallelTest } = await import('../core/rpa/tests/test-vlm-parallel')
+    return await runVlmParallelTest(apiKey, 'weixin')
   })
 
   createWindow()

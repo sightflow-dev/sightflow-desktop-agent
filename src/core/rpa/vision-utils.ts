@@ -246,14 +246,21 @@ export async function detectUnreadArea(
   error?: string
 }> {
   try {
+    const t0 = Date.now()
+
     // 1. 截图
     const screenshotResult = await captureWechatWindow(appType)
+    console.log(`[VisionUtils:UnreadArea] 截图完成 (${Date.now() - t0}ms) success=${screenshotResult.success}`)
     if (!screenshotResult.success || !screenshotResult.screenshotBase64) {
       return { success: false, error: screenshotResult.error || '截图失败' }
     }
+    const imgSizeKB = (screenshotResult.screenshotBase64.length / 1024).toFixed(0)
+    console.log(`[VisionUtils:UnreadArea] 图片大小: ${imgSizeKB}KB`)
 
     // 2. 获取窗口信息（用于坐标转换）
+    const t1 = Date.now()
     const windowInfo = await getWindowInfo(appType, false)
+    console.log(`[VisionUtils:UnreadArea] 窗口信息获取 (${Date.now() - t1}ms)`)
     if (!windowInfo?.bounds || !windowInfo?.scaleFactor) {
       return { success: false, error: '获取窗口信息失败' }
     }
@@ -263,9 +270,10 @@ export async function detectUnreadArea(
     const config = UNREAD_AREA_PROMPTS[promptKey]
 
     // 4. 调 VLM
+    const t2 = Date.now()
     console.log('[VisionUtils] 调用 VLM 检测未读区域...')
     const vlmResult = await aiClient.detectVision(config.prompt, screenshotResult.screenshotBase64)
-    console.log('[VisionUtils] VLM 返回:', vlmResult.slice(0, 300))
+    console.log(`[VisionUtils:UnreadArea] VLM 返回 (${((Date.now() - t2) / 1000).toFixed(1)}s):`, vlmResult.slice(0, 300))
 
     // 5. 解析 bbox
     const bboxes = parseBBoxes(vlmResult)
@@ -301,7 +309,8 @@ export async function detectUnreadArea(
       appType
     } as LayoutCache)
 
-    console.log('[VisionUtils] 未读区域检测完成', {
+    const totalElapsed = ((Date.now() - t0) / 1000).toFixed(1)
+    console.log(`[VisionUtils:UnreadArea] 检测完成 (总${totalElapsed}s)`, {
       chatEntranceArea: chatEntranceArea.coordinates,
       firstContact: firstContact?.coordinates
     })

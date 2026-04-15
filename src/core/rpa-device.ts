@@ -15,6 +15,11 @@ import {
   isChatContactUnread as isChatContactUnreadDetect
 } from './rpa/has-unread'
 import {
+  setChatBaseline as setChatBaselineFn,
+  checkChatAreaDiff,
+  clearChatBaseline as clearChatBaselineFn
+} from './rpa/image-compare'
+import {
   detectUnreadArea as detectUnreadAreaFn,
   detectWechatLayout,
   getInputAreaFromCache,
@@ -181,6 +186,20 @@ export class RPADevice implements DesktopDevice {
       setLayoutCache(this.appType, cache)
       console.log('[RPADevice] 已清除未读区域缓存')
     }
+  }
+
+  // ── chatMainArea Diff 检测 ──
+
+  async setChatBaseline(): Promise<boolean> {
+    return setChatBaselineFn(this.appType)
+  }
+
+  async hasChatAreaChanged(): Promise<{ hasDiff: boolean; hasBaseline: boolean }> {
+    return checkChatAreaDiff(this.appType)
+  }
+
+  clearChatBaseline(): void {
+    clearChatBaselineFn()
   }
 
   // ── 动作层 ──

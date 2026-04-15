@@ -156,6 +156,19 @@ export class AIClient {
   private async callAPI(input: any[]): Promise<any> {
     const url = `${this.config.baseURL}/responses`
     const TIMEOUT_MS = 30_000 // 30 秒超时
+    const callStart = Date.now()
+
+    // 计算 payload 大小（粗略，不重复序列化）
+    const bodyStr = JSON.stringify({
+      model: this.config.model,
+      input,
+      thinking: { type: 'disabled' },
+      stream: false
+    })
+    const bodySizeKB = (bodyStr.length / 1024).toFixed(0)
+    console.log(
+      `[AIClient] callAPI 开始 | model=${this.config.model} | payload=${bodySizeKB}KB | timeout=${TIMEOUT_MS / 1000}s`
+    )
 
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
@@ -164,15 +177,15 @@ export class AIClient {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.config.apiKey}`,
+          Authorization: `Bearer ${this.config.apiKey}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: this.config.model,
-          input
-        }),
+        body: bodyStr,
         signal: controller.signal
       })
+
+      const fetchElapsed = ((Date.now() - callStart) / 1000).toFixed(1)
+      console.log(`[AIClient] 收到响应 status=${response.status} (${fetchElapsed}s)`)
 
       if (!response.ok) {
         const errorText = await response.text()
@@ -180,11 +193,17 @@ export class AIClient {
         throw new Error(`API request failed: ${response.status} - ${errorText.slice(0, 200)}`)
       }
 
-      return await response.json()
+      const json = await response.json()
+      const totalElapsed = ((Date.now() - callStart) / 1000).toFixed(1)
+      console.log(`[AIClient] 解析完成 (${totalElapsed}s)`)
+      return json
     } catch (error: any) {
+      const elapsed = ((Date.now() - callStart) / 1000).toFixed(1)
       if (error?.name === 'AbortError') {
+        console.error(`[AIClient] ⏱ 超时！已等待 ${elapsed}s，上限 ${TIMEOUT_MS / 1000}s`)
         throw new Error(`AI API 请求超时 (${TIMEOUT_MS / 1000}s)`)
       }
+      console.error(`[AIClient] 请求异常 (${elapsed}s):`, error?.message)
       throw error
     } finally {
       clearTimeout(timer)
