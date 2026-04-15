@@ -1,6 +1,7 @@
 # SightFlow.dev
 <img width="1201" height="495" alt="image" src="https://github.com/user-attachments/assets/99a7cfec-eb22-4f65-8a76-a6974e46bcf0" />
 
+Official website： [https://sightflow.dev](https://sightflow.dev/)
 
 An Electron application with React and TypeScript
 
