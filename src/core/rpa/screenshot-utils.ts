@@ -40,7 +40,7 @@ export function getChatContactAvatarBounds(): { x: number; y: number; width: num
   return { x: 70, y: 64, width: 46, height: 68 }
 }
 
-export const takeWeChatScreenshot = async ({ wechatType = 'whatsapp' }: { wechatType: AppType }) => {
+export const takeWeChatScreenshot = async ({ wechatType = 'weixin' }: { wechatType: AppType }) => {
   try {
     const windowInfo = await getWindowInfo(wechatType, true)
     if (!windowInfo) return { success: false, error: '未找到应用窗口' }
@@ -76,7 +76,7 @@ export async function calculateRedDotPercentage(base64Image: string, onlyFirstQu
 }
 
 export async function captureWechatWindow(
-  appType: AppType = 'whatsapp',
+  appType: AppType = 'weixin',
   crop?: { x: number; y: number; width: number; height: number }
 ): Promise<any> {
   try {

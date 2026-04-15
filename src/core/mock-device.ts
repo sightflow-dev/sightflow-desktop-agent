@@ -15,9 +15,9 @@ export class MockDevice implements DesktopDevice {
     // Mock: 不需要 API key
   }
 
-  async measureLayout(): Promise<boolean> {
+  async measureLayout(): Promise<{ success: boolean; error?: string }> {
     console.log('[MockDevice] 布局测量（模拟）✓')
-    return true
+    return { success: true }
   }
 
   async screenshot(): Promise<string> {

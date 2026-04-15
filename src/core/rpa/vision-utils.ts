@@ -22,16 +22,16 @@ export interface LayoutAreaItem {
 
 export interface LayoutCache {
   // ── 未读检测区域（detectUnreadArea） ──
-  chatEntranceArea: LayoutAreaItem | null   // 聊天入口按钮（粗检测红点）
-  firstContact: LayoutAreaItem | null       // 联系人列表第一行（细检测红点）
+  chatEntranceArea: LayoutAreaItem | null // 聊天入口按钮（粗检测红点）
+  firstContact: LayoutAreaItem | null // 联系人列表第一行（细检测红点）
 
   // ── 主布局区域（detectWechatLayout） ──
-  searchInputBox: LayoutAreaItem | null     // 搜索输入框
-  headerArea: LayoutAreaItem | null         // 对话窗口 header
-  chatMainArea: LayoutAreaItem | null       // 聊天记录区（diff 检测用）
+  searchInputBox: LayoutAreaItem | null // 搜索输入框
+  headerArea: LayoutAreaItem | null // 对话窗口 header
+  chatMainArea: LayoutAreaItem | null // 聊天记录区（diff 检测用）
 
   // ── 输入框区域（从 chatMainArea 反推） ──
-  messageInputArea: LayoutAreaItem | null   // 文字输入框（chatMainArea 底边 → 窗口底边）
+  messageInputArea: LayoutAreaItem | null // 文字输入框（chatMainArea 底边 → 窗口底边）
 
   timestamp: number
   appType: AppType
@@ -75,7 +75,7 @@ export function parseBBoxes(text: string): BBox[] {
     const y1 = Number(match[2])
     const x2 = Number(match[3])
     const y2 = Number(match[4])
-    if ([x1, y1, x2, y2].every(v => Number.isFinite(v))) {
+    if ([x1, y1, x2, y2].every((v) => Number.isFinite(v))) {
       bboxes.push([Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2)])
     }
   }
@@ -89,7 +89,7 @@ export function parseBBoxes(text: string): BBox[] {
       const y1 = Number(match[2])
       const x2 = Number(match[3])
       const y2 = Number(match[4])
-      if ([x1, y1, x2, y2].every(v => Number.isFinite(v))) {
+      if ([x1, y1, x2, y2].every((v) => Number.isFinite(v))) {
         bboxes.push([Math.round(x1), Math.round(y1), Math.round(x2), Math.round(y2)])
       }
     }
@@ -107,10 +107,7 @@ export function parsePoint(text: string): [number, number] | null {
   const match = regex.exec(text)
   if (!match) return null
 
-  return [
-    Math.round(parseFloat(match[1])),
-    Math.round(parseFloat(match[2]))
-  ]
+  return [Math.round(parseFloat(match[1])), Math.round(parseFloat(match[2]))]
 }
 
 // ── 坐标转换 ──
@@ -165,10 +162,7 @@ export function pointToScreenCoords(
       Math.round((bounds.y + logicalY) * scaleFactor)
     ]
   } else {
-    return [
-      Math.round(bounds.x + logicalX),
-      Math.round(bounds.y + logicalY)
-    ]
+    return [Math.round(bounds.x + logicalX), Math.round(bounds.y + logicalY)]
   }
 }
 
@@ -246,21 +240,14 @@ export async function detectUnreadArea(
   error?: string
 }> {
   try {
-    const t0 = Date.now()
-
     // 1. 截图
     const screenshotResult = await captureWechatWindow(appType)
-    console.log(`[VisionUtils:UnreadArea] 截图完成 (${Date.now() - t0}ms) success=${screenshotResult.success}`)
     if (!screenshotResult.success || !screenshotResult.screenshotBase64) {
       return { success: false, error: screenshotResult.error || '截图失败' }
     }
-    const imgSizeKB = (screenshotResult.screenshotBase64.length / 1024).toFixed(0)
-    console.log(`[VisionUtils:UnreadArea] 图片大小: ${imgSizeKB}KB`)
 
     // 2. 获取窗口信息（用于坐标转换）
-    const t1 = Date.now()
     const windowInfo = await getWindowInfo(appType, false)
-    console.log(`[VisionUtils:UnreadArea] 窗口信息获取 (${Date.now() - t1}ms)`)
     if (!windowInfo?.bounds || !windowInfo?.scaleFactor) {
       return { success: false, error: '获取窗口信息失败' }
     }
@@ -270,10 +257,9 @@ export async function detectUnreadArea(
     const config = UNREAD_AREA_PROMPTS[promptKey]
 
     // 4. 调 VLM
-    const t2 = Date.now()
     console.log('[VisionUtils] 调用 VLM 检测未读区域...')
     const vlmResult = await aiClient.detectVision(config.prompt, screenshotResult.screenshotBase64)
-    console.log(`[VisionUtils:UnreadArea] VLM 返回 (${((Date.now() - t2) / 1000).toFixed(1)}s):`, vlmResult.slice(0, 300))
+    console.log('[VisionUtils] VLM 返回:', vlmResult.slice(0, 300))
 
     // 5. 解析 bbox
     const bboxes = parseBBoxes(vlmResult)
@@ -309,8 +295,7 @@ export async function detectUnreadArea(
       appType
     } as LayoutCache)
 
-    const totalElapsed = ((Date.now() - t0) / 1000).toFixed(1)
-    console.log(`[VisionUtils:UnreadArea] 检测完成 (总${totalElapsed}s)`, {
+    console.log('[VisionUtils] 未读区域检测完成', {
       chatEntranceArea: chatEntranceArea.coordinates,
       firstContact: firstContact?.coordinates
     })
@@ -370,9 +355,7 @@ export async function getUnreadArea(
  * - InputArea.y1 = chatMainArea.y2（chatMainArea 底边 = InputArea 顶边）
  * - InputArea.y2 = 1000（窗口底边）
  */
-export function getInputAreaFromCache(
-  appType: AppType
-): LayoutAreaItem | null {
+export function getInputAreaFromCache(appType: AppType): LayoutAreaItem | null {
   const cache = getLayoutCache(appType)
 
   // 已有 messageInputArea 直接返回

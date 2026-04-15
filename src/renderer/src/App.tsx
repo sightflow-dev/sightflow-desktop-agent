@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { t, setLocale, getLocale, Locale } from './i18n'
+import { t } from './i18n'
+import logoUrl from './assets/logo.png'
 import './index.css'
 
 // ─── Types ───
@@ -10,50 +11,69 @@ interface LogEntry {
 }
 
 type EngineStatus = 'idle' | 'running' | 'error'
-type Tab = 'control' | 'settings'
+type View = 'control' | 'settings'
+
+// ─── SVG Icons ───
+const PlayIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <path d="M8 5.14v14l11-7-11-7z" />
+  </svg>
+)
+
+const StopIcon = () => (
+  <svg viewBox="0 0 24 24" fill="currentColor">
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+  </svg>
+)
+
+const GearIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+)
+
+const BackIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+)
 
 // ─── App ───
 function App(): JSX.Element {
-  const [tab, setTab] = useState<Tab>('control')
-  const [locale, _setLocale] = useState<Locale>(getLocale())
-  const [, forceUpdate] = useState(0)
-
-  const handleLocaleChange = useCallback((newLocale: Locale) => {
-    setLocale(newLocale)
-    _setLocale(newLocale)
-    forceUpdate(n => n + 1)
-  }, [])
+  const [view, setView] = useState<View>('control')
+  const [status, setStatus] = useState<EngineStatus>('idle')
 
   return (
     <div className="app">
       <header className="app-header">
-        <h1>{t('app.title')}</h1>
-        <span className="version">{t('app.version')}</span>
+        {view === 'settings' ? (
+          <button
+            className="bottom-btn bottom-btn-settings"
+            onClick={() => setView('control')}
+            style={{ width: 32, height: 32, marginRight: 4 }}
+          >
+            <BackIcon />
+          </button>
+        ) : null}
+        <img src={logoUrl} alt="SightFlow" className="app-logo" />
       </header>
 
-      <div className="tabs">
-        <button
-          className={`tab ${tab === 'control' ? 'active' : ''}`}
-          onClick={() => setTab('control')}
-        >
-          {t('tab.control')}
-        </button>
-        <button
-          className={`tab ${tab === 'settings' ? 'active' : ''}`}
-          onClick={() => setTab('settings')}
-        >
-          {t('tab.settings')}
-        </button>
+      <div className="app-content">
+        {view === 'control' ? (
+          <ControlPanel status={status} setStatus={setStatus} />
+        ) : (
+          <SettingsPanel />
+        )}
       </div>
 
-      <div className="app-content">
-        <div style={{ display: tab === 'control' ? 'block' : 'none' }}>
-          <ControlPanel />
-        </div>
-        <div style={{ display: tab === 'settings' ? 'block' : 'none' }}>
-          <SettingsPanel locale={locale} onLocaleChange={handleLocaleChange} />
-        </div>
-      </div>
+      {view === 'control' && (
+        <BottomBar
+          status={status}
+          setStatus={setStatus}
+          onSettings={() => setView('settings')}
+        />
+      )}
 
       <Toast />
     </div>
@@ -61,14 +81,19 @@ function App(): JSX.Element {
 }
 
 // ─── Control Panel ───
-function ControlPanel(): JSX.Element {
-  const [status, setStatus] = useState<EngineStatus>('idle')
+function ControlPanel({
+  status,
+  setStatus
+}: {
+  status: EngineStatus
+  setStatus: (s: EngineStatus) => void
+}): JSX.Element {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const logRef = useRef<HTMLDivElement>(null)
 
   const addLog = useCallback((type: LogEntry['type'], content: string) => {
     const time = new Date().toLocaleTimeString('en-US', { hour12: false })
-    setLogs(prev => [...prev.slice(-99), { time, type, content }])
+    setLogs((prev) => [...prev.slice(-99), { time, type, content }])
   }, [])
 
   useEffect(() => {
@@ -77,74 +102,32 @@ function ControlPanel(): JSX.Element {
     }
   }, [logs])
 
-  // 监听引擎事件
   useEffect(() => {
     const cleanup = window.electron?.on('engine:log', (data: { type: string; content: string }) => {
       addLog(data.type as LogEntry['type'], data.content)
+
+      if (data.type === 'error' && data.content.includes('引擎无法启动')) {
+        setStatus('error')
+      }
     })
     return cleanup
-  }, [addLog])
+  }, [addLog, setStatus])
 
-  const handleStart = useCallback(async () => {
-    const settings = await window.electron?.invoke('settings:getAll')
-    const apiKey = settings?.apiKey || ''
-    if (!apiKey) {
-      showToast(t('control.start.nokey'), 'error')
-      return
-    }
-
-    const config = {
-      apiKey,
-      model: settings?.model || undefined,
-      baseURL: settings?.baseURL || undefined,
-      systemPrompt: settings?.systemPrompt || undefined
-    }
-
-    const result = await window.electron?.invoke('engine:start', config)
-    if (result?.success) {
-      setStatus('running')
-      addLog('reply', 'Engine started')
-      showToast(t('toast.engineStarted'), 'success')
-    } else {
-      setStatus('error')
-      addLog('error', result?.error || 'Unknown error')
-      showToast(result?.error || t('toast.startFailed'), 'error')
-    }
-  }, [addLog])
-
-  const handleStop = useCallback(async () => {
-    await window.electron?.invoke('engine:stop')
-    setStatus('idle')
-    addLog('skip', 'Engine stopped')
-    showToast(t('toast.engineStopped'), 'success')
-  }, [addLog])
-
-  const statusLabel = status === 'running' ? t('status.running')
-    : status === 'error' ? t('status.error')
-    : t('status.idle')
+  const statusLabel =
+    status === 'running'
+      ? t('status.running')
+      : status === 'error'
+        ? t('status.error')
+        : t('status.idle')
 
   return (
     <div className="fade-in">
-      {/* Status */}
-      <div className="card-title">{t('control.status')}</div>
       <div className={`status-indicator ${status}`}>
         <div className={`status-dot ${status}`} />
         <span className="status-text">{statusLabel}</span>
       </div>
 
-      {/* Start/Stop Button */}
-      {status === 'running' ? (
-        <button className="btn btn-danger btn-large" onClick={handleStop}>
-          ⏹ {t('control.stop')}
-        </button>
-      ) : (
-        <button className="btn btn-primary btn-large" onClick={handleStart}>
-          ▶ {t('control.start')}
-        </button>
-      )}
-
-      {/* Log */}
-      <div className="card" style={{ marginTop: 20 }}>
+      <div className="card">
         <div className="card-title">{t('control.log')}</div>
         <div className="message-log" ref={logRef}>
           {logs.length === 0 ? (
@@ -166,28 +149,85 @@ function ControlPanel(): JSX.Element {
   )
 }
 
-// ─── Settings Panel ───
-function SettingsPanel({
-  locale,
-  onLocaleChange
+// ─── Bottom Bar ───
+function BottomBar({
+  status,
+  setStatus,
+  onSettings
 }: {
-  locale: Locale
-  onLocaleChange: (l: Locale) => void
+  status: EngineStatus
+  setStatus: (s: EngineStatus) => void
+  onSettings: () => void
 }): JSX.Element {
+  const handleStart = useCallback(async () => {
+    const settings = await window.electron?.invoke('settings:getAll')
+    const apiKey = settings?.apiKey || ''
+    if (!apiKey) {
+      showToast(t('control.start.nokey'), 'error')
+      return
+    }
+
+    const config = {
+      apiKey,
+      model: settings?.model || undefined,
+      baseURL: settings?.baseURL || undefined,
+      systemPrompt: settings?.systemPrompt || undefined,
+      appType: settings?.appType || 'weixin'
+    }
+
+    const result = await window.electron?.invoke('engine:start', config)
+    if (result?.success) {
+      setStatus('running')
+      showToast(t('toast.engineStarted'), 'success')
+    } else {
+      setStatus('error')
+      showToast(result?.error || t('toast.startFailed'), 'error')
+    }
+  }, [setStatus])
+
+  const handleStop = useCallback(async () => {
+    await window.electron?.invoke('engine:stop')
+    setStatus('idle')
+    showToast(t('toast.engineStopped'), 'success')
+  }, [setStatus])
+
+  const running = status === 'running'
+
+  return (
+    <div className="bottom-bar">
+      {running ? (
+        <button className="bottom-btn bottom-btn-stop" onClick={handleStop}>
+          <StopIcon />
+          {t('control.stop')}
+        </button>
+      ) : (
+        <button className="bottom-btn bottom-btn-play" onClick={handleStart}>
+          <PlayIcon />
+          {t('control.start')}
+        </button>
+      )}
+      <button className="bottom-btn bottom-btn-settings" onClick={onSettings}>
+        <GearIcon />
+      </button>
+    </div>
+  )
+}
+
+// ─── Settings Panel ───
+function SettingsPanel(): JSX.Element {
   const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState('')
+  const [model, setModel] = useState('doubao-seed-2-0-lite-260215')
   const [baseURL, setBaseURL] = useState('')
   const [systemPrompt, setSystemPrompt] = useState('')
-  const [appType, setAppType] = useState<'weixin' | 'wework' | 'whatsapp'>('weixin')
+  const [appType, setAppType] = useState<'weixin' | 'wework'>('weixin')
   const [testing, setTesting] = useState(false)
-  const [loaded, setLoaded] = useState(false)
+  const [, setLoaded] = useState(false)
 
-  // 从 main 进程的 electron-store 加载设置
   useEffect(() => {
     window.electron?.invoke('settings:getAll').then((settings: any) => {
       if (settings) {
         setApiKey(settings.apiKey || '')
-        setModel(settings.model || '')
+        setModel('doubao-seed-2-0-lite-260215')
         setBaseURL(settings.baseURL || '')
         setSystemPrompt(settings.systemPrompt || '')
         setAppType(settings.appType || 'weixin')
@@ -205,7 +245,6 @@ function SettingsPanel({
       appType
     })
 
-    // 如果引擎已运行，热更新配置
     window.electron?.invoke('engine:updateConfig', {
       apiKey: apiKey || undefined,
       model: model || undefined,
@@ -239,21 +278,19 @@ function SettingsPanel({
   }, [apiKey, model, baseURL])
 
   return (
-    <div className="fade-in">
-      {/* AI Config */}
+    <div className="slide-up">
       <div className="card">
         <div className="card-title">{t('settings.ai')}</div>
 
         <div className="form-group">
-          <label className="form-label">App Type (目标应用)</label>
-          <select 
-            className="form-input" 
-            value={appType} 
-            onChange={e => setAppType(e.target.value as any)}
+          <label className="form-label">应用类型</label>
+          <select
+            className="form-input"
+            value={appType}
+            onChange={(e) => setAppType(e.target.value as any)}
           >
-            <option value="weixin">微信 (WeChat)</option>
-            <option value="wework">企业微信 (WeWork)</option>
-            <option value="whatsapp">WhatsApp</option>
+            <option value="weixin">微信</option>
+            <option value="wework">企业微信</option>
           </select>
         </div>
 
@@ -263,7 +300,7 @@ function SettingsPanel({
             className="form-input"
             type="password"
             value={apiKey}
-            onChange={e => setApiKey(e.target.value)}
+            onChange={(e) => setApiKey(e.target.value)}
             placeholder={t('settings.apiKey.placeholder')}
             autoComplete="off"
           />
@@ -275,7 +312,7 @@ function SettingsPanel({
           <input
             className="form-input"
             value={model}
-            onChange={e => setModel(e.target.value)}
+            disabled
             placeholder={t('settings.model.placeholder')}
           />
         </div>
@@ -285,7 +322,7 @@ function SettingsPanel({
           <input
             className="form-input"
             value={baseURL}
-            onChange={e => setBaseURL(e.target.value)}
+            onChange={(e) => setBaseURL(e.target.value)}
             placeholder={t('settings.baseURL.placeholder')}
           />
         </div>
@@ -295,7 +332,7 @@ function SettingsPanel({
           <textarea
             className="form-input"
             value={systemPrompt}
-            onChange={e => setSystemPrompt(e.target.value)}
+            onChange={(e) => setSystemPrompt(e.target.value)}
             placeholder={t('settings.systemPrompt.placeholder')}
             rows={4}
           />
@@ -315,29 +352,6 @@ function SettingsPanel({
         </div>
       </div>
 
-      {/* General */}
-      <div className="card">
-        <div className="card-title">{t('settings.general')}</div>
-        <div className="form-group">
-          <label className="form-label">{t('settings.language')}</label>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              className={`btn ${locale === 'zh' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => onLocaleChange('zh')}
-              style={{ flex: 1 }}
-            >
-              中文
-            </button>
-            <button
-              className={`btn ${locale === 'en' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => onLocaleChange('en')}
-              style={{ flex: 1 }}
-            >
-              English
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   )
 }
@@ -364,9 +378,7 @@ function Toast(): JSX.Element {
   }, [])
 
   return (
-    <div className={`toast ${type} ${visible ? 'show' : ''}`}>
-      {message}
-    </div>
+    <div className={`toast ${type} ${visible ? 'show' : ''}`}>{message}</div>
   )
 }
 

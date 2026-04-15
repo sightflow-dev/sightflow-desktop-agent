@@ -26,6 +26,7 @@ import {
   getLayoutCache,
   setLayoutCache
 } from './rpa/vision-utils'
+import { getWechatWindowInfo } from './rpa/window-utils'
 
 export class RPADevice implements DesktopDevice {
   private appType: AppType = 'weixin'
@@ -51,13 +52,20 @@ export class RPADevice implements DesktopDevice {
    *
    * 检测完成后，从 chatMainArea 反推 inputArea（纯计算，无外部调用）
    */
-  async measureLayout(): Promise<boolean> {
+  async measureLayout(): Promise<{ success: boolean; error?: string }> {
     if (!this.aiClient) {
       console.error('[RPADevice] aiClient 未初始化，无法测量布局')
-      return false
+      return { success: false, error: 'AI Client 未初始化' }
     }
 
     try {
+      // 提前校验应用窗口，避免大模型成本和迷惑性报错
+      const windowInfo = await getWechatWindowInfo(this.appType)
+      if (!windowInfo) {
+        const appName = this.appType === 'weixin' ? '微信' : (this.appType === 'wework' ? '企业微信' : 'WhatsApp')
+        return { success: false, error: `未找到${appName}窗口，请确保已打开且未被完全遮挡/最小化` }
+      }
+
       console.log('[RPADevice] 开始布局测量（并行）...')
 
       const [unreadResult, layoutResult] = await Promise.allSettled([
@@ -111,14 +119,17 @@ export class RPADevice implements DesktopDevice {
       // chatEntranceArea 是轮询红点的必要条件
       if (!unreadOk) {
         console.error('[RPADevice] 布局测量失败：未读区域检测是必要条件')
-        return false
+        const errorMsg = unreadResult.status === 'fulfilled' && !unreadResult.value.success 
+            ? unreadResult.value.error || '未读区域检测是必要条件' 
+            : '未读区域检测是必要条件'
+        return { success: false, error: `布局测量失败: ${errorMsg}` }
       }
 
       console.log('[RPADevice] 布局测量完成 ✓')
-      return true
+      return { success: true }
     } catch (error: any) {
       console.error('[RPADevice] 布局测量异常:', error)
-      return false
+      return { success: false, error: String(error) }
     }
   }
 

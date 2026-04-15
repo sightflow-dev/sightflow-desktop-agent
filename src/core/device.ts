@@ -19,7 +19,7 @@ export interface DesktopDevice {
    * 启动时一次性布局测量（VLM 定位 chatEntrance / firstContact / inputArea 并缓存）
    * 返回 true 表示测量成功，后续 hasUnreadMessage 可直接用缓存做红点扫描
    */
-  measureLayout(): Promise<boolean>
+  measureLayout(): Promise<{ success: boolean; error?: string }>
 
   /** 全窗口截图 → base64 */
   screenshot(): Promise<string>

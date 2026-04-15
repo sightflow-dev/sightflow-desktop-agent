@@ -169,7 +169,7 @@ export async function getWechatWindowInfo(appType: AppType) {
   return queryPromise
 }
 
-export const getWindowInfo = async (appType: AppType = 'whatsapp', includeScreenshot: boolean = true) => {
+export const getWindowInfo = async (appType: AppType = 'weixin', includeScreenshot: boolean = true) => {
   if (!includeScreenshot) {
     const result = await getWechatWindowInfo(appType)
     if (!result) return null

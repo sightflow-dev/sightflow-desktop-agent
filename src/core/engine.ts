@@ -15,8 +15,10 @@ import { DesktopDevice } from './device'
 
 export class Engine {
   private running = false
+  private consecutiveUnreadFailures = 0
 
   constructor(
+
     private hooks: AgentHooks,
     private device: DesktopDevice,
     private onLog?: (type: string, content: string) => void
@@ -39,10 +41,10 @@ export class Engine {
     try {
       // ── Step 1: 测量 ──
       this.emitLog('thinking', '开始布局测量...')
-      const measured = await this.device.measureLayout()
+      const measureResult = await this.device.measureLayout()
 
-      if (!measured) {
-        this.emitLog('error', '布局测量失败，引擎无法启动')
+      if (!measureResult.success) {
+        this.emitLog('error', (measureResult.error || '布局测量失败') + '，引擎无法启动')
         this.running = false
         await this.hooks.onEngineStop?.()
         return
@@ -187,39 +189,49 @@ export class Engine {
         }
       }
 
-      // ── Step 3.2: 连续两次细检测失败 → 清除缓存强制重检 ──
+      // ── Step 3.2: 连续两次细检测失败 → 增加失败计数，达到阈值再清除缓存强制重检 ──
       if (!contactResult.isUnread) {
-        this.emitLog('thinking', '连续检测失败，VLM 坐标缓存可能不准确，清除缓存强制重检')
+        this.consecutiveUnreadFailures++
 
-        this.device.clearUnreadCache()
-        await this.sleep(500)
+        if (this.consecutiveUnreadFailures >= 3) {
+          this.emitLog('thinking', `连续 ${this.consecutiveUnreadFailures} 次检测失败，VLM 坐标缓存可能不准确，清除缓存强制重检`)
+          this.device.clearUnreadCache()
+          this.consecutiveUnreadFailures = 0 // 重置
+          await this.sleep(500)
 
-        // 重新调 isChatContactUnread（触发 VLM 重新定位 firstContact）
-        contactResult = await this.device.isChatContactUnread()
+          // 重新调 isChatContactUnread（触发 VLM 重新定位 firstContact）
+          contactResult = await this.device.isChatContactUnread()
 
-        if (!contactResult.isUnread) {
-          // 缓存重建后仍失败 → 再点击一次 + 最终检测
-          this.emitLog('thinking', '缓存重建后检测失败，再点击一次')
+          if (!contactResult.isUnread) {
+            // 缓存重建后仍失败 → 再点击一次 + 最终检测
+            this.emitLog('thinking', '缓存重建后检测失败，再点击一次')
 
-          const retryUnread = await this.device.hasUnreadMessage()
-          const retryCoords = retryUnread.chatEntranceArea?.coordinates
+            const retryUnread = await this.device.hasUnreadMessage()
+            const retryCoords = retryUnread.chatEntranceArea?.coordinates
 
-          if (retryCoords) {
-            await this.device.activeUnreadByClick(retryCoords)
-            await this.sleep(500)
+            if (retryCoords) {
+              await this.device.activeUnreadByClick(retryCoords)
+              await this.sleep(500)
 
-            contactResult = await this.device.isChatContactUnread()
+              contactResult = await this.device.isChatContactUnread()
 
-            if (!contactResult.isUnread) {
-              this.emitLog('skip', '最终检测仍失败，放弃，继续轮询')
+              if (!contactResult.isUnread) {
+                this.emitLog('skip', '最终检测仍失败，放弃，继续轮询')
+                continue
+              }
+            } else {
+              this.emitLog('skip', '缓存重建后未获取到坐标，继续轮询')
               continue
             }
-          } else {
-            this.emitLog('skip', '缓存重建后未获取到坐标，继续轮询')
-            continue
           }
+        } else {
+          this.emitLog('skip', `细检测失败 (第 ${this.consecutiveUnreadFailures} 次)，暂不清除缓存，继续轮询`)
+          continue
         }
       }
+
+      // 重置失败计数
+      this.consecutiveUnreadFailures = 0
 
       // ── Step 4: 点击未读联系人 ──
       const firstContactCoords = contactResult.firstContactCoords
