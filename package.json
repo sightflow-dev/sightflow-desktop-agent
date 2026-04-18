@@ -27,7 +27,7 @@
     "@ai-sdk/openai": "^3.0.52",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "@hurdlegroup/robotjs": "github:shiflow2023/robotjs",
+    "@hurdlegroup/robotjs": "^0.12.3",
     "active-win": "^8.2.1",
     "ai": "^6.0.159",
     "electron-log": "^5.4.3",
