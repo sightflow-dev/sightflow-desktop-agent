@@ -3,6 +3,12 @@
 
 Official website： [https://sightflow.dev](https://sightflow.dev/)
 
+
+# 招募共建开发者
+我们相信Agent Computer Use 会是未来10年重要AI革命的基建，如果你也希望参与到这个项目迭代，欢迎联系\
+
+[加入Discord](https://discord.com/invite/8H6KpbXq3t)
+
 ## 🔑 AI 模型配置 (API Key / SK Key)
 
 本项目依赖大语言模型/视觉模型（Vision Language Model）驱动 RPA。
@@ -46,3 +52,4 @@ npm run build:mac
 ## 开发环境推荐配置
 
 - [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+
