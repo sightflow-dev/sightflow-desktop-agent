@@ -85,10 +85,7 @@ export class AIClient {
    */
   async callText(userMessage: string): Promise<string> {
     const data = await this.callAPI([
-      {
-        role: 'user',
-        content: [{ type: 'input_text', text: userMessage }]
-      }
+      { role: 'user', content: userMessage }
     ])
     return this.extractText(data)
   }
@@ -124,25 +121,17 @@ export class AIClient {
     imageBase64: string
   ): Promise<string> {
     const rawBase64 = this.stripBase64Prefix(imageBase64)
+    const imageUrl = rawBase64.startsWith('http')
+      ? rawBase64
+      : `data:image/png;base64,${rawBase64}`
 
     const data = await this.callAPI([
-      {
-        role: 'system',
-        content: [{ type: 'input_text', text: systemPrompt }]
-      },
+      { role: 'system', content: systemPrompt },
       {
         role: 'user',
         content: [
-          {
-            type: 'input_image',
-            image_url: rawBase64.startsWith('http')
-              ? rawBase64
-              : `data:image/png;base64,${rawBase64}`
-          },
-          {
-            type: 'input_text',
-            text: userText
-          }
+          { type: 'image_url', image_url: { url: imageUrl } },
+          { type: 'text', text: userText }
         ]
       }
     ])
@@ -151,17 +140,19 @@ export class AIClient {
   }
 
   /**
-   * 底层 HTTP 调用 — 火山引擎 Ark /responses 端点
+   * 底层 HTTP 调用 — OpenAI 兼容 /chat/completions 端点
+   * thinking 字段是火山方舟对标 OpenAI Responses API 的扩展参数，
+   * 在非火山供应商上会被忽略，放在这里不影响兼容性
    */
-  private async callAPI(input: any[]): Promise<any> {
-    const url = `${this.config.baseURL}/responses`
+  private async callAPI(messages: any[]): Promise<any> {
+    const url = `${this.config.baseURL}/chat/completions`
     const TIMEOUT_MS = 30_000 // 30 秒超时
     const callStart = Date.now()
 
     // 计算 payload 大小（粗略，不重复序列化）
     const bodyStr = JSON.stringify({
       model: this.config.model,
-      input,
+      messages,
       thinking: { type: 'disabled' },
       stream: false
     })
@@ -211,51 +202,13 @@ export class AIClient {
   }
 
   /**
-   * 从火山 /responses 返回值中提取文本
-   *
-   * 火山引擎 /responses 端点实际返回格式:
-   * {
-   *   output: [
-   *     { type: "reasoning", summary: [...], status: "completed" },
-   *     { type: "message", role: "assistant", content: [{ type: "output_text", text: "..." }], status: "completed" }
-   *   ]
-   * }
+   * 从 OpenAI 兼容 /chat/completions 返回值中提取文本
+   * 格式: { choices: [{ message: { role, content: string } }] }
    */
   private extractText(responseData: any): string {
-    if (Array.isArray(responseData?.output)) {
-      const texts: string[] = []
-
-      for (const item of responseData.output) {
-        // 1. 顶层直接是 output_text / text
-        if (item.type === 'output_text' || item.type === 'text') {
-          if (item.text) texts.push(item.text)
-          else if (typeof item.content === 'string') texts.push(item.content)
-        }
-        // 2. type=message，文本嵌套在 content 数组中
-        else if (item.type === 'message' && Array.isArray(item.content)) {
-          for (const block of item.content) {
-            if ((block.type === 'output_text' || block.type === 'text') && block.text) {
-              texts.push(block.text)
-            }
-          }
-        }
-        // 3. 忽略 reasoning 等其他类型
-      }
-
-      if (texts.length > 0) {
-        return texts.join('')
-      }
-    }
-    // fallback: output.content 或 output 字符串
-    if (responseData?.output?.content) {
-      return responseData.output.content
-    }
-    if (typeof responseData?.output === 'string') {
-      return responseData.output
-    }
-    // OpenAI /chat/completions 兼容格式
-    if (responseData?.choices?.[0]?.message?.content) {
-      return responseData.choices[0].message.content
+    const content = responseData?.choices?.[0]?.message?.content
+    if (typeof content === 'string' && content.length > 0) {
+      return content
     }
     console.warn('[AIClient] 无法解析回复格式:', JSON.stringify(responseData).slice(0, 500))
     return ''
