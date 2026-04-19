@@ -12,7 +12,7 @@
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "start": "electron-vite preview",
-    "dev": "electron-vite dev",
+    "dev": "node scripts/dev-launch.mjs",
     "dev:test-screenshot": "electron-vite build && cross-env TEST_MODE=screenshot electron ./out/main/test-cli.js",
     "dev:test-reply": "electron-vite build && cross-env TEST_MODE=reply electron ./out/main/test-cli.js",
     "dev:test-switch": "electron-vite build && cross-env TEST_MODE=switch electron ./out/main/test-cli.js",
