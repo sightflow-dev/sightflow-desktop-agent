@@ -1,1 +1,1 @@
-export type AppType = 'weixin' | 'wework'
+export type AppType = 'wechat' | 'wework'

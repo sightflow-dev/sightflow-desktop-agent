@@ -1,7 +1,7 @@
 // src/core/ai-client.ts
 // AI 客户端 — 统一封装所有大模型调用
 //
-// 使用火山引擎 Ark /responses 端点 + doubao-seed-2-0-lite
+// 使用火山引擎 Ark OpenAI 兼容 /chat/completions 端点 + doubao-seed-2-0-lite
 // 两种用途：
 //   1. 聊天回复：截图 → AI 分析 → 回复文字
 //   2. VLM 视觉检测：截图 → AI 分析 → bbox/point 坐标

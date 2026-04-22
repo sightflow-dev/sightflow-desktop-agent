@@ -30,7 +30,7 @@ export function matchWechatType(name: string, appType: AppType) {
     return ['‎WhatsApp', '‎WhatsApp.app', '‎WhatsApp.exe', 'WhatsApp'].includes(name)
   }
   const wechatName =
-    appType === 'weixin' ? ['微信', '微信.app', 'WeChat'] : ['企业微信', '企业微信.app']
+    appType === 'wechat' ? ['微信', '微信.app', 'WeChat'] : ['企业微信', '企业微信.app']
   return wechatName.includes(name)
 }
 
@@ -43,8 +43,8 @@ function getWechatWindow(appType: AppType, windows: any[]): any {
     windowTitle = ['‎WhatsApp', '‎WhatsApp.app', '‎WhatsApp.exe', 'WhatsApp']
   } else {
     appTargetName =
-      appType === 'weixin' ? ['微信', '微信.app', 'WeChat'] : ['企业微信', '企业微信.app']
-    windowTitle = appType === 'weixin' ? ['微信', 'Weixin'] : ['企业微信']
+      appType === 'wechat' ? ['微信', '微信.app', 'WeChat'] : ['企业微信', '企业微信.app']
+    windowTitle = appType === 'wechat' ? ['微信', 'Weixin'] : ['企业微信']
   }
 
   const allWechatWindows = windows.filter((window: any) =>
@@ -169,7 +169,7 @@ export async function getWechatWindowInfo(appType: AppType) {
   return queryPromise
 }
 
-export const getWindowInfo = async (appType: AppType = 'weixin', includeScreenshot: boolean = true) => {
+export const getWindowInfo = async (appType: AppType = 'wechat', includeScreenshot: boolean = true) => {
   if (!includeScreenshot) {
     const result = await getWechatWindowInfo(appType)
     if (!result) return null
@@ -217,4 +217,3 @@ export function getWindowInfoSync(appType: AppType): {
     scaleFactor: cached.result.display?.scaleFactor || 1
   }
 }
-

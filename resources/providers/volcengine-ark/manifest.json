@@ -1,0 +1,29 @@
+{
+  "apiVersion": 1,
+  "id": "volcengine-ark",
+  "name": "火山方舟聊天服务",
+  "version": "1.0.0",
+  "entry": "provider.bundle.js",
+  "moduleType": "module",
+  "capabilities": ["chat"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "apiKey": {
+        "type": "password",
+        "title": "接口密钥"
+      },
+      "model": {
+        "type": "string",
+        "title": "模型名称",
+        "default": "doubao-seed-2-0-lite-260215"
+      },
+      "systemPrompt": {
+        "type": "string",
+        "title": "系统提示词",
+        "default": ""
+      }
+    },
+    "required": ["apiKey"]
+  }
+}

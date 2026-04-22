@@ -3,7 +3,7 @@ import { RPADevice } from '../../rpa-device'
 export async function runSwitchTest() {
   console.log('[Test] Running visual unread switch test...')
   const device = new RPADevice()
-  device.setAppType('weixin')
+  device.setAppType('wechat')
   
   // 1. 检测未读
   const unreadResult = await device.hasUnreadMessage()

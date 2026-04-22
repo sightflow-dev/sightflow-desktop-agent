@@ -29,7 +29,7 @@ import {
 import { getWechatWindowInfo } from './rpa/window-utils'
 
 export class RPADevice implements DesktopDevice {
-  private appType: AppType = 'weixin'
+  private appType: AppType = 'wechat'
   private aiClient: AIClient | null = null
 
   setAppType(appType: AppType): void {
@@ -62,7 +62,7 @@ export class RPADevice implements DesktopDevice {
       // 提前校验应用窗口，避免大模型成本和迷惑性报错
       const windowInfo = await getWechatWindowInfo(this.appType)
       if (!windowInfo) {
-        const appName = this.appType === 'weixin' ? '微信' : (this.appType === 'wework' ? '企业微信' : 'WhatsApp')
+        const appName = this.appType === 'wechat' ? '微信' : (this.appType === 'wework' ? '企业微信' : 'WhatsApp')
         return { success: false, error: `未找到${appName}窗口，请确保已打开且未被完全遮挡/最小化` }
       }
 

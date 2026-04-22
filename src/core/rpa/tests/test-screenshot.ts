@@ -4,7 +4,7 @@ import * as fs from 'fs'
 export async function runScreenshotTest() {
   console.log('[Test] Running screenshot atom...')
   const device = new RPADevice()
-  device.setAppType('weixin')
+  device.setAppType('wechat')
   
   try {
     const screenshotStr = await device.screenshot()

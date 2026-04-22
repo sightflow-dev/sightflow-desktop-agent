@@ -3,7 +3,6 @@ import { t } from './i18n'
 import logoUrl from './assets/logo.png'
 import './index.css'
 
-// ─── Types ───
 interface LogEntry {
   time: string
   type: 'thinking' | 'reply' | 'skip' | 'error'
@@ -12,8 +11,60 @@ interface LogEntry {
 
 type EngineStatus = 'idle' | 'running' | 'error'
 type View = 'control' | 'settings'
+type AppType = 'wechat' | 'wework'
 
-// ─── SVG Icons ───
+interface ProviderSchemaField {
+  type: 'string' | 'password' | 'select' | 'boolean'
+  title: string
+  default?: string | boolean
+  enum?: string[]
+}
+
+interface ProviderManifest {
+  apiVersion: 1
+  id: string
+  name: string
+  version: string
+  entry: string
+  capabilities: ['chat']
+  configSchema: {
+    type: 'object'
+    properties: Record<string, ProviderSchemaField>
+    required?: string[]
+  }
+}
+
+interface InstalledProviderInfo {
+  id: string
+  name: string
+  version: string
+  entryFile: string
+  installedAt: string
+}
+
+interface AppSettings {
+  locale: 'zh' | 'en'
+  appType: AppType
+  vision: {
+    apiKey: string
+  }
+  chatProvider: {
+    manifestUrl: string
+    installed: InstalledProviderInfo | null
+    config: Record<string, any>
+  }
+}
+
+const PROVIDER_NAME_LABELS: Record<string, string> = {
+  'volcengine-ark': '火山方舟聊天服务'
+}
+
+const PROVIDER_FIELD_LABELS: Record<string, string> = {
+  apiKey: '接口密钥',
+  model: '模型名称',
+  systemPrompt: '系统提示词'
+}
+
 const PlayIcon = () => (
   <svg viewBox="0 0 24 24" fill="currentColor">
     <path d="M8 5.14v14l11-7-11-7z" />
@@ -39,7 +90,6 @@ const BackIcon = () => (
   </svg>
 )
 
-// ─── App ───
 function App() {
   const [view, setView] = useState<View>('control')
   const [status, setStatus] = useState<EngineStatus>('idle')
@@ -80,7 +130,20 @@ function App() {
   )
 }
 
-// ─── Control Panel ───
+function getProviderDisplayName(provider: InstalledProviderInfo | null | undefined, manifest: ProviderManifest | null) {
+  return (
+    (provider?.id && PROVIDER_NAME_LABELS[provider.id]) ||
+    (manifest?.id && PROVIDER_NAME_LABELS[manifest.id]) ||
+    provider?.name ||
+    manifest?.name ||
+    ''
+  )
+}
+
+function getProviderFieldLabel(fieldKey: string, field: ProviderSchemaField) {
+  return PROVIDER_FIELD_LABELS[fieldKey] || field.title
+}
+
 function ControlPanel({
   status,
   setStatus
@@ -137,7 +200,7 @@ function ControlPanel({
               <div className="log-entry" key={i}>
                 <span className="log-time">{entry.time}</span>
                 <span className={`log-type ${entry.type}`}>
-                  {t(`control.log.${entry.type}` as any)}
+                  {t(`control.log.${entry.type}` as never)}
                 </span>
                 <span>{entry.content}</span>
               </div>
@@ -149,7 +212,6 @@ function ControlPanel({
   )
 }
 
-// ─── Bottom Bar ───
 function BottomBar({
   status,
   setStatus,
@@ -160,22 +222,29 @@ function BottomBar({
   onSettings: () => void
 }) {
   const handleStart = useCallback(async () => {
-    const settings = await window.electron?.invoke('settings:getAll')
-    const apiKey = settings?.apiKey || ''
-    if (!apiKey) {
-      showToast(t('control.start.nokey'), 'error')
+    const settings = (await window.electron?.invoke('settings:getAll')) as AppSettings | undefined
+    if (!settings?.vision?.apiKey) {
+      showToast(t('control.start.novisionkey'), 'error')
+      return
+    }
+    if (!settings.chatProvider?.installed) {
+      showToast(t('control.start.noprovider'), 'error')
+      return
+    }
+    const providerInfo = (await window.electron?.invoke('provider:getInstalled')) as {
+      manifest: ProviderManifest | null
+    }
+    const required = providerInfo?.manifest?.configSchema?.required || []
+    const missing = required.find((key) => {
+      const value = settings.chatProvider.config?.[key]
+      return value === undefined || value === null || value === ''
+    })
+    if (missing) {
+      showToast(`${t('control.start.missingProviderField')}: ${missing}`, 'error')
       return
     }
 
-    const config = {
-      apiKey,
-      model: settings?.model || undefined,
-      baseURL: settings?.baseURL || undefined,
-      systemPrompt: settings?.systemPrompt || undefined,
-      appType: settings?.appType || 'weixin'
-    }
-
-    const result = await window.electron?.invoke('engine:start', config)
+    const result = await window.electron?.invoke('engine:start', settings)
     if (result?.success) {
       setStatus('running')
       showToast(t('toast.engineStarted'), 'success')
@@ -213,57 +282,115 @@ function BottomBar({
   )
 }
 
-// ─── Settings Panel ───
 function SettingsPanel() {
-  const [apiKey, setApiKey] = useState('')
-  const [model, setModel] = useState('doubao-seed-2-0-lite-260215')
-  const [baseURL, setBaseURL] = useState('')
-  const [systemPrompt, setSystemPrompt] = useState('')
-  const [appType, setAppType] = useState<'weixin' | 'wework'>('weixin')
+  const [appType, setAppType] = useState<AppType>('wechat')
+  const [visionApiKey, setVisionApiKey] = useState('')
+  const [providerManifestUrl, setProviderManifestUrl] = useState('')
+  const [installedProvider, setInstalledProvider] = useState<InstalledProviderInfo | null>(null)
+  const [installedManifest, setInstalledManifest] = useState<ProviderManifest | null>(null)
+  const [providerConfig, setProviderConfig] = useState<Record<string, any>>({})
   const [testing, setTesting] = useState(false)
-  const [, setLoaded] = useState(false)
+  const [installing, setInstalling] = useState(false)
 
   useEffect(() => {
-    window.electron?.invoke('settings:getAll').then((settings: any) => {
+    const load = async () => {
+      const settings = (await window.electron?.invoke('settings:getAll')) as AppSettings | undefined
       if (settings) {
-        setApiKey(settings.apiKey || '')
-        setModel('doubao-seed-2-0-lite-260215')
-        setBaseURL(settings.baseURL || '')
-        setSystemPrompt(settings.systemPrompt || '')
-        setAppType(settings.appType || 'weixin')
+        setAppType(settings.appType || 'wechat')
+        setVisionApiKey(settings.vision?.apiKey || '')
+        setProviderManifestUrl(settings.chatProvider?.manifestUrl || '')
+        setInstalledProvider(settings.chatProvider?.installed || null)
+        setProviderConfig(settings.chatProvider?.config || {})
       }
-      setLoaded(true)
-    })
+
+      const providerInfo = (await window.electron?.invoke('provider:getInstalled')) as {
+        installed: InstalledProviderInfo | null
+        manifest: ProviderManifest | null
+      }
+      if (providerInfo?.installed) {
+        setInstalledProvider(providerInfo.installed)
+      }
+      if (providerInfo?.manifest) {
+        const manifest = providerInfo.manifest
+        setInstalledManifest(manifest)
+        setProviderConfig((prev) => applyManifestDefaults(manifest, prev))
+      }
+    }
+
+    void load()
   }, [])
 
-  const handleSave = useCallback(async () => {
-    await window.electron?.invoke('settings:set', {
-      apiKey,
-      model,
-      baseURL,
-      systemPrompt,
-      appType
-    })
+  const handleSaveVision = useCallback(async () => {
+    const payload: Partial<AppSettings> = {
+      appType,
+      vision: { apiKey: visionApiKey }
+    }
 
-    window.electron?.invoke('engine:updateConfig', {
-      apiKey: apiKey || undefined,
-      model: model || undefined,
-      baseURL: baseURL || undefined,
-      systemPrompt: systemPrompt || undefined,
-      appType
+    await window.electron?.invoke('settings:set', payload)
+    await window.electron?.invoke('engine:updateConfig', {
+      ...(await window.electron?.invoke('settings:getAll')),
+      ...payload,
+      vision: { apiKey: visionApiKey }
     })
-
     showToast(t('settings.saved'), 'success')
-  }, [apiKey, model, baseURL, systemPrompt, appType])
+  }, [appType, visionApiKey])
+
+  const handleInstallProvider = useCallback(async () => {
+    if (!providerManifestUrl.trim()) {
+      showToast(t('settings.providerManifest.required'), 'error')
+      return
+    }
+
+    setInstalling(true)
+    try {
+      const result = await window.electron?.invoke('provider:installFromUrl', providerManifestUrl.trim())
+      if (!result?.success) {
+        showToast(result?.error || t('settings.providerInstall.failed'), 'error')
+        return
+      }
+
+      setInstalledProvider(result.installed)
+      setInstalledManifest(result.manifest)
+      setProviderConfig((prev) => applyManifestDefaults(result.manifest as ProviderManifest, prev))
+      showToast(t('settings.providerInstall.success'), 'success')
+    } finally {
+      setInstalling(false)
+    }
+  }, [providerManifestUrl])
+
+  const handleSaveProvider = useCallback(async () => {
+    if (!installedManifest || !installedProvider) {
+      showToast(t('settings.providerInstall.required'), 'error')
+      return
+    }
+
+    const required = installedManifest.configSchema.required || []
+    const missing = required.find((key) => {
+      const value = providerConfig[key]
+      return value === undefined || value === null || value === ''
+    })
+    if (missing) {
+      showToast(`${t('settings.providerField.required')}: ${missing}`, 'error')
+      return
+    }
+
+    await window.electron?.invoke('settings:set', {
+      chatProvider: {
+        manifestUrl: providerManifestUrl,
+        installed: installedProvider,
+        config: providerConfig
+      }
+    })
+
+    showToast(t('settings.provider.saved'), 'success')
+  }, [installedManifest, installedProvider, providerConfig, providerManifestUrl])
 
   const handleTestConnection = useCallback(async () => {
-    if (!apiKey) return
+    if (!visionApiKey) return
     setTesting(true)
     try {
       const result = await window.electron?.invoke('engine:testConnection', {
-        apiKey,
-        model: model || undefined,
-        baseURL: baseURL || undefined
+        apiKey: visionApiKey
       })
       if (result?.success) {
         showToast(t('settings.testConnection.success'), 'success')
@@ -275,88 +402,198 @@ function SettingsPanel() {
     } finally {
       setTesting(false)
     }
-  }, [apiKey, model, baseURL])
+  }, [visionApiKey])
 
   return (
     <div className="slide-up">
-      <div className="card">
-        <div className="card-title">{t('settings.ai')}</div>
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="card-title">{t('settings.vision')}</div>
 
         <div className="form-group">
-          <label className="form-label">应用类型</label>
+          <label className="form-label">{t('settings.appType')}</label>
           <select
             className="form-input"
             value={appType}
-            onChange={(e) => setAppType(e.target.value as any)}
+            onChange={(e) => setAppType(e.target.value as AppType)}
           >
-            <option value="weixin">微信</option>
+            <option value="wechat">微信</option>
             <option value="wework">企业微信</option>
           </select>
         </div>
 
         <div className="form-group">
-          <label className="form-label">{t('settings.apiKey')}</label>
+          <label className="form-label">{t('settings.visionApiKey')}</label>
           <input
             className="form-input"
             type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={t('settings.apiKey.placeholder')}
+            value={visionApiKey}
+            onChange={(e) => setVisionApiKey(e.target.value)}
+            placeholder={t('settings.visionApiKey.placeholder')}
             autoComplete="off"
           />
-          <div className="form-hint">{t('settings.apiKey.hint')}</div>
+          <div className="form-hint">{t('settings.visionApiKey.hint')}</div>
         </div>
 
         <div className="form-group">
-          <label className="form-label">{t('settings.model')}</label>
-          <input
-            className="form-input"
-            value={model}
-            disabled
-            placeholder={t('settings.model.placeholder')}
-          />
+          <label className="form-label">{t('settings.visionModel')}</label>
+          <input className="form-input" value="doubao-seed-2-0-lite-260215" disabled />
         </div>
 
         <div className="form-group">
-          <label className="form-label">{t('settings.baseURL')}</label>
-          <input
-            className="form-input"
-            value={baseURL}
-            onChange={(e) => setBaseURL(e.target.value)}
-            placeholder={t('settings.baseURL.placeholder')}
-          />
-        </div>
-
-        <div className="form-group">
-          <label className="form-label">{t('settings.systemPrompt')}</label>
-          <textarea
-            className="form-input"
-            value={systemPrompt}
-            onChange={(e) => setSystemPrompt(e.target.value)}
-            placeholder={t('settings.systemPrompt.placeholder')}
-            rows={4}
-          />
+          <label className="form-label">{t('settings.visionBaseUrl')}</label>
+          <input className="form-input" value="https://ark.cn-beijing.volces.com/api/v3" disabled />
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             className="btn btn-secondary"
             onClick={handleTestConnection}
-            disabled={!apiKey || testing}
+            disabled={!visionApiKey || testing}
           >
             {testing ? t('settings.testConnection.testing') : t('settings.testConnection')}
           </button>
-          <button className="btn btn-primary" onClick={handleSave} style={{ flex: 1 }}>
-            {t('settings.save')}
+          <button className="btn btn-primary" onClick={handleSaveVision} style={{ flex: 1 }}>
+            {t('settings.saveVision')}
           </button>
         </div>
       </div>
 
+      <div className="card">
+        <div className="card-title">{t('settings.chatProvider')}</div>
+
+        <div className="form-group">
+          <label className="form-label">{t('settings.providerManifest')}</label>
+          <input
+            className="form-input"
+            value={providerManifestUrl}
+            onChange={(e) => setProviderManifestUrl(e.target.value)}
+            placeholder={t('settings.providerManifest.placeholder')}
+            autoComplete="off"
+          />
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button
+            className="btn btn-secondary"
+            onClick={handleInstallProvider}
+            disabled={!providerManifestUrl || installing}
+          >
+            {installing ? t('settings.providerInstall.installing') : t('settings.providerInstall')}
+          </button>
+        </div>
+
+        {installedProvider ? (
+          <div className="form-group">
+            <label className="form-label">{t('settings.providerInstalled')}</label>
+            <div className="form-hint">
+              {getProviderDisplayName(installedProvider, installedManifest)} · {installedProvider.version}
+            </div>
+            <div className="form-hint">{new Date(installedProvider.installedAt).toLocaleString()}</div>
+          </div>
+        ) : null}
+
+        {installedManifest ? (
+          <>
+            {Object.entries(installedManifest.configSchema.properties).map(([key, field]) => (
+              <DynamicProviderField
+                key={key}
+                fieldKey={key}
+                field={field}
+                value={providerConfig[key]}
+                onChange={(value) => setProviderConfig((prev) => ({ ...prev, [key]: value }))}
+              />
+            ))}
+
+            <button className="btn btn-primary" onClick={handleSaveProvider} style={{ width: '100%' }}>
+              {t('settings.provider.save')}
+            </button>
+          </>
+        ) : (
+          <div className="form-hint">{t('settings.providerInstall.required')}</div>
+        )}
+      </div>
     </div>
   )
 }
 
-// ─── Toast ───
+function DynamicProviderField({
+  fieldKey,
+  field,
+  value,
+  onChange
+}: {
+  fieldKey: string
+  field: ProviderSchemaField
+  value: any
+  onChange: (value: any) => void
+}) {
+  const label = getProviderFieldLabel(fieldKey, field)
+  const normalizedValue =
+    value !== undefined
+      ? value
+      : field.default !== undefined
+        ? field.default
+        : field.type === 'boolean'
+          ? false
+          : ''
+
+  return (
+    <div className="form-group">
+      <label className="form-label">{label}</label>
+      {field.type === 'select' ? (
+        <select
+          className="form-input"
+          value={String(normalizedValue)}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          {(field.enum || []).map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      ) : field.type === 'boolean' ? (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#cbd5e1' }}>
+          <input
+            type="checkbox"
+            checked={Boolean(normalizedValue)}
+            onChange={(e) => onChange(e.target.checked)}
+          />
+          {label}
+        </label>
+      ) : fieldKey === 'systemPrompt' ? (
+        <textarea
+          className="form-input"
+          rows={4}
+          value={String(normalizedValue)}
+          onChange={(e) => onChange(e.target.value)}
+        />
+      ) : (
+        <input
+          className="form-input"
+          type={field.type === 'password' ? 'password' : 'text'}
+          value={String(normalizedValue)}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete="off"
+        />
+      )}
+    </div>
+  )
+}
+
+function applyManifestDefaults(
+  manifest: ProviderManifest,
+  current: Record<string, any>
+): Record<string, any> {
+  const next = { ...current }
+  for (const [key, field] of Object.entries(manifest.configSchema.properties || {})) {
+    if (next[key] === undefined && field.default !== undefined) {
+      next[key] = field.default
+    }
+  }
+  return next
+}
+
 let _showToast: ((msg: string, type: 'success' | 'error') => void) | null = null
 
 function showToast(msg: string, type: 'success' | 'error') {
@@ -377,9 +614,7 @@ function Toast() {
     timerRef.current = window.setTimeout(() => setVisible(false), 2500)
   }, [])
 
-  return (
-    <div className={`toast ${type} ${visible ? 'show' : ''}`}>{message}</div>
-  )
+  return <div className={`toast ${type} ${visible ? 'show' : ''}`}>{message}</div>
 }
 
 export default App

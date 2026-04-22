@@ -1,9 +1,8 @@
 // src/core/device.ts
 // Business Atomic Device — 业务原子驱动层
 //
-// Engine 唯一依赖的感知+动作接口。
-// 此接口为 AgentHooks 插件系统的基础 —— 不同的 Hooks 实现（LocalHooks / CloudHooks）
-// 共享同一个 Device。
+// 当前主路径里，这个接口由 ChannelSession 依赖，用于统一访问宿主应用的感知与动作能力。
+// 旧的 hook-based 编排已移除，宿主编排只保留 Runtime / Channel / Provider 这条主线。
 
 import { AppType } from './rpa/types'
 import { BBox } from './rpa/vision-utils'
@@ -52,7 +51,7 @@ export interface DesktopDevice {
 
   /**
    * 保存当前 chatMainArea 截图作为 diff baseline
-   * 在 processCurrentChat 回复完成后调用
+   * 在 channel 消费完 reply / skip 后调用
    */
   setChatBaseline(): Promise<boolean>
 

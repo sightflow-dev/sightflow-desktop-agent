@@ -4,18 +4,54 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { checkAndRequestPermissions } from './permission'
 import Store from 'electron-store'
-import { Engine } from '../core/engine'
-import { LocalHooks } from '../core/local-hooks'
 import { AIClient } from '../core/ai-client'
 import { RPADevice } from '../core/rpa-device'
+import { RuntimeHost } from '../core/runtime-host'
+import {
+  createInitialWeChatChannelState,
+  WeChatChannelSession
+} from '../core/wechat-channel-session'
+import { AppType } from '../core/rpa/types'
+import {
+  getInstalledProviderManifest,
+  installProviderFromUrl,
+  InstalledProviderInfo,
+  loadInstalledProvider
+} from './provider-bundle'
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
+
+const FIXED_ARK_MODEL = 'doubao-seed-2-0-lite-260215'
+const FIXED_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+
+interface AppSettings {
+  locale: 'zh' | 'en'
+  appType: AppType
+  vision: {
+    apiKey: string
+  }
+  chatProvider: {
+    manifestUrl: string
+    installed: InstalledProviderInfo | null
+    config: Record<string, any>
+  }
+}
+
 const settingsStore = new StoreClass({
   name: 'settings',
-  defaults: { apiKey: '', model: '', baseURL: '', systemPrompt: '', locale: 'zh' }
+  defaults: {
+    locale: 'zh',
+    appType: 'wechat',
+    vision: { apiKey: '' },
+    chatProvider: {
+      manifestUrl: '',
+      installed: null,
+      config: {}
+    }
+  }
 })
 
-let engine: Engine | null = null
-let localHooks: LocalHooks | null = null
+let runtime: RuntimeHost<ReturnType<typeof createInitialWeChatChannelState>> | null = null
+let runtimeDevice: RPADevice | null = null
 
 function createWindow(): void {
   // Create the browser window.
@@ -76,46 +112,109 @@ app.whenReady().then(async () => {
 
   // ── Settings 持久化 ──
   ipcMain.handle('settings:getAll', async () => {
-    return settingsStore.store
+    return normalizeSettings(settingsStore.store)
   })
 
   ipcMain.handle('settings:get', async (_event, key: string) => {
-    return settingsStore.get(key)
+    const settings = normalizeSettings(settingsStore.store)
+    return (settings as Record<string, any>)[key]
   })
 
   ipcMain.handle('settings:set', async (_event, data: Record<string, any>) => {
-    for (const [key, value] of Object.entries(data)) {
-      settingsStore.set(key, value)
-    }
+    const next = {
+      ...normalizeSettings(settingsStore.store),
+      ...data,
+      vision: {
+        ...normalizeSettings(settingsStore.store).vision,
+        ...(data.vision || {})
+      },
+      chatProvider: {
+        ...normalizeSettings(settingsStore.store).chatProvider,
+        ...(data.chatProvider || {}),
+        config: {
+          ...normalizeSettings(settingsStore.store).chatProvider.config,
+          ...(data.chatProvider?.config || {})
+        }
+      }
+    } satisfies AppSettings
+
+    settingsStore.set(next as any)
     return { success: true }
   })
 
-  // ── Engine 操控 ──
-  ipcMain.handle('engine:start', async (_event, config) => {
-    if (engine?.isRunning()) return { success: false, error: '引擎已在运行中' }
+  ipcMain.handle('provider:installFromUrl', async (_event, manifestUrl: string) => {
     try {
-      localHooks = new LocalHooks({
-        ai: {
-          apiKey: config.apiKey,
-          model: config.model,
-          baseURL: config.baseURL,
-          systemPrompt: config.systemPrompt
+      const result = await installProviderFromUrl(manifestUrl)
+      const current = normalizeSettings(settingsStore.store)
+      settingsStore.set({
+        ...current,
+        chatProvider: {
+          ...current.chatProvider,
+          manifestUrl,
+          installed: result.installed,
+          config: withSchemaDefaults(result.manifest.configSchema, current.chatProvider.config)
         }
-      })
-      const device = new RPADevice()
-      device.setAppType(config.appType || 'weixin')
-      device.setApiKey(config.apiKey)
+      } as any)
+
+      return {
+        success: true,
+        installed: result.installed,
+        manifest: result.manifest
+      }
+    } catch (error: any) {
+      return { success: false, error: error?.message || String(error) }
+    }
+  })
+
+  ipcMain.handle('provider:getInstalled', async () => {
+    const settings = normalizeSettings(settingsStore.store)
+    const manifest = await getInstalledProviderManifest(settings.chatProvider.installed)
+    return {
+      installed: settings.chatProvider.installed,
+      manifest
+    }
+  })
+
+  // ── Runtime / Session IPC（沿用 legacy engine:* 通道名） ──
+  ipcMain.handle('engine:start', async (_event, config) => {
+    if (runtime?.isRunning()) return { success: false, error: '引擎已在运行中' }
+    try {
+      const settings = normalizeSettings(config || settingsStore.store)
+      const appType: AppType = settings.appType || 'wechat'
+      if (!settings.vision.apiKey) {
+        return { success: false, error: '请先填写视觉接口密钥' }
+      }
+      if (!settings.chatProvider.installed) {
+        return { success: false, error: '请先安装聊天服务' }
+      }
+
+      const { provider } = await loadInstalledProvider(
+        settings.chatProvider.installed,
+        settings.chatProvider.config
+      )
+
+      runtimeDevice = new RPADevice()
+      runtimeDevice.setAppType(appType)
+      runtimeDevice.setApiKey(settings.vision.apiKey)
+
+      const channel = new WeChatChannelSession(runtimeDevice)
       const mainWindow = BrowserWindow.getAllWindows()[0]
-      engine = new Engine(localHooks, device, (type, content) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('engine:log', { type, content })
+      runtime = new RuntimeHost({
+        appType,
+        channel,
+        provider,
+        initialState: createInitialWeChatChannelState(),
+        onLog: (type, content) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('engine:log', { type, content })
+          }
         }
       })
-      
-      engine.start().catch((err: any) => {
-        console.error('[Main] Engine loop error:', err)
+
+      runtime.startSession().catch((err: any) => {
+        console.error('[Main] Runtime session error:', err)
       })
-      
+
       return { success: true }
     } catch (error: any) {
       return { success: false, error: error?.message || String(error) }
@@ -123,28 +222,34 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('engine:stop', async () => {
-    if (!engine?.isRunning()) return { success: false, error: '引擎未运行' }
-    engine.stop()
+    if (!runtime?.isRunning()) return { success: false, error: '引擎未运行' }
+    await runtime.stopSession('ipc_stop')
     return { success: true }
   })
 
   ipcMain.handle('engine:status', async () => {
-    return { running: engine?.isRunning() ?? false }
+    return { running: runtime?.isRunning() ?? false }
   })
 
   ipcMain.handle('engine:updateConfig', async (_event, config) => {
-    if (localHooks) {
-      localHooks.updateAIConfig(config)
-      if (engine && config.appType) {
-        (engine as any).device?.setAppType(config.appType)
-      }
-      return { success: true }
+    const settings = normalizeSettings(config || settingsStore.store)
+    if (runtimeDevice) {
+      runtimeDevice.setApiKey(settings.vision.apiKey)
+      runtimeDevice.setAppType(settings.appType)
     }
-    return { success: false, error: '引擎未初始化' }
+    if (runtime) {
+      runtime.updateAppType(settings.appType)
+    }
+    return { success: true }
   })
 
   ipcMain.handle('engine:testConnection', async (_event, config) => {
-    const client = new AIClient(config)
+    const apiKey = config?.apiKey || normalizeSettings(settingsStore.store).vision.apiKey
+    const client = new AIClient({
+      apiKey,
+      model: FIXED_ARK_MODEL,
+      baseURL: FIXED_ARK_BASE_URL
+    })
     return client.testConnection()
   })
 
@@ -169,10 +274,10 @@ app.whenReady().then(async () => {
 
   // ── 测试入口：VLM 并行 vs 串行 ──
   ipcMain.handle('test:vlm-parallel', async () => {
-    const apiKey = settingsStore.get('apiKey') as string
-    if (!apiKey) return { error: '请先在设置中填写 API Key' }
+    const apiKey = normalizeSettings(settingsStore.store).vision.apiKey
+    if (!apiKey) return { error: '请先在设置中填写视觉接口密钥' }
     const { runVlmParallelTest } = await import('../core/rpa/tests/test-vlm-parallel')
-    return await runVlmParallelTest(apiKey, 'weixin')
+    return await runVlmParallelTest(apiKey, 'wechat')
   })
 
   createWindow()
@@ -195,3 +300,49 @@ app.on('window-all-closed', () => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
+
+function normalizeSettings(raw: any): AppSettings {
+  const oldApiKey = typeof raw?.apiKey === 'string' ? raw.apiKey : ''
+  const oldModel = typeof raw?.model === 'string' && raw.model ? raw.model : FIXED_ARK_MODEL
+  const oldSystemPrompt = typeof raw?.systemPrompt === 'string' ? raw.systemPrompt : ''
+  const rawProviderConfig =
+    raw?.chatProvider?.config && typeof raw.chatProvider.config === 'object' ? { ...raw.chatProvider.config } : {}
+
+  // Keep arbitrary provider config keys, and only backfill legacy volcengine fields for old persisted settings.
+  if (rawProviderConfig.apiKey === undefined && oldApiKey) {
+    rawProviderConfig.apiKey = oldApiKey
+  }
+  if (rawProviderConfig.model === undefined && oldModel) {
+    rawProviderConfig.model = oldModel
+  }
+  if (rawProviderConfig.systemPrompt === undefined && oldSystemPrompt) {
+    rawProviderConfig.systemPrompt = oldSystemPrompt
+  }
+
+  return {
+    locale: raw?.locale === 'en' ? 'en' : 'zh',
+    // Keep reading historical `weixin` values from persisted settings.
+    appType: raw?.appType === 'wework' ? 'wework' : 'wechat',
+    vision: {
+      apiKey: raw?.vision?.apiKey || oldApiKey || ''
+    },
+    chatProvider: {
+      manifestUrl: raw?.chatProvider?.manifestUrl || raw?.providerManifestUrl || '',
+      installed: raw?.chatProvider?.installed || null,
+      config: rawProviderConfig
+    }
+  }
+}
+
+function withSchemaDefaults(
+  schema: { properties: Record<string, { default?: unknown }> },
+  current: Record<string, any>
+): Record<string, any> {
+  const next = { ...current }
+  for (const [key, field] of Object.entries(schema.properties || {})) {
+    if (next[key] === undefined && field.default !== undefined) {
+      next[key] = field.default
+    }
+  }
+  return next
+}

@@ -191,8 +191,8 @@ export function bboxToCropBounds(
 
 // ── VLM 布局检测 Prompt ──
 
-const UNREAD_AREA_PROMPTS: Record<'weixin' | 'wework', { prompt: string; targets: string[] }> = {
-  weixin: {
+const UNREAD_AREA_PROMPTS: Record<'wechat' | 'wework', { prompt: string; targets: string[] }> = {
+  wechat: {
     prompt: `你是一个微信布局解析专家。
 
 ## 微信桌面端布局
@@ -253,7 +253,7 @@ export async function detectUnreadArea(
     }
 
     // 3. 选择 prompt
-    const promptKey = appType === 'wework' ? 'wework' : 'weixin'
+    const promptKey = appType === 'wework' ? 'wework' : 'wechat'
     const config = UNREAD_AREA_PROMPTS[promptKey]
 
     // 4. 调 VLM
@@ -403,8 +403,8 @@ export function getInputAreaFromCache(appType: AppType): LayoutAreaItem | null {
 
 // ── 布局主检测 Prompt ──
 
-const LAYOUT_DETECT_PROMPTS: Record<'weixin' | 'wework', { prompt: string; targets: string[] }> = {
-  weixin: {
+const LAYOUT_DETECT_PROMPTS: Record<'wechat' | 'wework', { prompt: string; targets: string[] }> = {
+  wechat: {
     prompt: `你是一个微信布局解析专家。你熟知微信桌面端的布局。
 
 ## 微信桌面端布局
@@ -465,7 +465,7 @@ export async function detectWechatLayout(
     }
 
     // 3. 选择 prompt
-    const promptKey = appType === 'wework' ? 'wework' : 'weixin'
+    const promptKey = appType === 'wework' ? 'wework' : 'wechat'
     const config = LAYOUT_DETECT_PROMPTS[promptKey]
 
     // 4. 调 VLM
