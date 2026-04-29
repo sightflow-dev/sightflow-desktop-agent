@@ -12,7 +12,8 @@ Official website： [https://sightflow.dev](https://sightflow.dev/)
 ## 🔑 AI 模型配置 (API Key / SK Key)
 
 本项目依赖大语言模型/视觉模型（Vision Language Model）驱动 RPA。
-目前默认内置使用了**火山引擎 (Volcengine)** 的大模型服务。
+视觉定位仍由应用内置模型配置负责；聊天回复能力可以通过独立 Provider 接入。
+当前仓库内置了一个基于**火山引擎方舟 / 豆包 (Doubao)** 的聊天 Provider 示例。
 
 ### SK Key 的用途
 1. **智能对话回复**：由于项目涉及类似微信等的自动抓取，模型会分析聊天界面的截图并生成自然的回复内容（带防止自我循环对话机制）。
@@ -22,6 +23,19 @@ Official website： [https://sightflow.dev](https://sightflow.dev/)
 1. 请前往 [火山引擎控制台 - 方舟原生接口](https://console.volcengine.com/ark) 开通相关服务（如 doubao-seed-2-0-lite），并生成/获取你的 API Key。
 2. 在项目启动后，点击页面上的**设置 (Settings)** 选项。
 3. 将你的 API Key 填入配置中，即可开始测试对应 AI 功能及自动回复了（默认的 Base URL 为 `https://ark.cn-beijing.volces.com/api/v3` 可以直接使用不变）。
+
+## 聊天 Provider
+
+SightFlow 桌面端把“截图分析并生成回复”的聊天能力抽象为独立 Provider。Provider 通过 `manifest.json` 声明配置结构，通过 bundle 入口接收聊天截图并返回 `reply_text`、`skip`、`error` 等事件。
+
+外部接入说明见：[聊天 Provider 接入文档](./docs/provider.md)。
+
+当前仓库内置了一个 Doubao / 火山方舟 Provider 示例：
+
+```text
+resources/providers/volcengine-ark/manifest.json
+resources/providers/volcengine-ark/provider.bundle.js
+```
 
 ## 🚀 快速开始 (Project Setup)
 
@@ -52,4 +66,3 @@ npm run build:mac
 ## 开发环境推荐配置
 
 - [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
-
