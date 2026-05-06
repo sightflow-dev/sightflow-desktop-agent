@@ -152,7 +152,12 @@ export class WeChatChannelSession implements ChannelSession<WeChatChannelState> 
 
       case 'wait_retry':
         ctx.host.log('skip', '等待下一轮未读检测')
-        ctx.host.schedule({ type: 'check_unread' }, event.delayMs ?? this.retryDelayMs)
+        ctx.host.schedule(
+          event.reason === 'provider_error'
+            ? { type: 'observe_chat' }
+            : { type: 'check_unread' },
+          event.delayMs ?? this.retryDelayMs
+        )
         break
     }
   }
