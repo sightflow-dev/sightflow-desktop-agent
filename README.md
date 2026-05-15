@@ -29,17 +29,9 @@ Official website： [https://sightflow.dev](https://sightflow.dev/)
 
 ### 界面预览
 
-**主界面**
-
-<img width="420" alt="SightFlow 主界面" src="./docs/images/main.png" />
-
-**基础配置**
-
-<img width="820" alt="SightFlow 基础配置" src="./docs/images/settings-base.png" />
-
-**智能体配置**
-
-<img width="820" alt="SightFlow 智能体配置" src="./docs/images/settings-provider.png" />
+| 主界面 | 基础配置 | 智能体配置 |
+| --- | --- | --- |
+| <img width="240" alt="SightFlow 主界面" src="./docs/images/main.png" /> | <img width="360" alt="SightFlow 基础配置" src="./docs/images/settings-base.png" /> | <img width="360" alt="SightFlow 智能体配置" src="./docs/images/settings-provider.png" /> |
 
 ## 目标应用与框选模式
 
