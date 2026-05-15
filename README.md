@@ -27,6 +27,12 @@ Official website： [https://sightflow.dev](https://sightflow.dev/)
 3. 在**基础配置**中填写 API Key。默认 Base URL 为 `https://ark.cn-beijing.volces.com/api/v3`，通常无需修改。
 4. 在**智能体**中选择当前使用的 Provider。内置默认智能体为**豆包 Seed**，模型固定为 `doubao-seed-2-0-lite-260428`。
 
+<img width="840" alt="SightFlow 主界面" src="./docs/images/main.png" />
+
+<img width="900" alt="SightFlow 基础配置" src="./docs/images/settings-base.png" />
+
+<img width="900" alt="SightFlow 智能体配置" src="./docs/images/settings-provider.png" />
+
 ## 目标应用与框选模式
 
 主界面提供**目标应用**快捷配置，用来决定桌面端如何测量聊天窗口布局：
