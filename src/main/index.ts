@@ -39,7 +39,7 @@ const StoreClass =
     ? Store
     : ((Store as unknown as { default: typeof Store }).default as typeof Store)
 
-const FIXED_ARK_MODEL = 'doubao-seed-2-0-lite-260215'
+const FIXED_ARK_MODEL = 'doubao-seed-2-0-lite-260428'
 const FIXED_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
 
 interface PerAppCapture {

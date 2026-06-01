@@ -697,7 +697,7 @@ function SettingsPanel(): React.JSX.Element {
 
         <div className="form-group">
           <label className="form-label">{t('settings.visionModel')}</label>
-          <input className="form-input" value="doubao-seed-2-0-lite-260215" disabled />
+          <input className="form-input" value="doubao-seed-2-0-lite-260428" disabled />
         </div>
 
         <div className="form-group">

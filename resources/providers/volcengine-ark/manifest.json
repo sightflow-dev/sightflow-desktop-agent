@@ -16,7 +16,7 @@
       "model": {
         "type": "string",
         "title": "模型名称",
-        "default": "doubao-seed-2-0-lite-260215"
+        "default": "doubao-seed-2-0-lite-260428"
       },
       "systemPrompt": {
         "type": "string",

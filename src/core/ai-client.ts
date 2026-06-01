@@ -15,7 +15,7 @@ export interface AIClientConfig {
   systemPrompt: string
 }
 
-const DEFAULT_MODEL = 'doubao-seed-2-0-lite-260215'
+const DEFAULT_MODEL = 'doubao-seed-2-0-lite-260428'
 const DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
 
 const REPLY_SYSTEM_PROMPT = `你是一个微信自动回复助手。你会收到一张微信/企业微信的聊天窗口截图。
