@@ -1,5 +1,6 @@
 import { AIClient, AIClientConfig } from './ai-client'
 import { ProviderAdapter, ProviderEvent, ProviderInput } from './session-types'
+import { getErrorMessage } from './error-utils'
 import { mkdir, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -33,10 +34,10 @@ export class LocalProvider implements ProviderAdapter {
       }
 
       yield { type: 'reply_text', content: reply }
-    } catch (error: any) {
+    } catch (error: unknown) {
       yield {
         type: 'error',
-        error: error?.message || String(error) || 'Provider 调用失败'
+        error: getErrorMessage(error) || 'Provider 调用失败'
       }
     }
   }

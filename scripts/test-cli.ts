@@ -10,12 +10,11 @@ app.whenReady().then(async () => {
 
     const action = process.env.TEST_MODE
     console.log(`\n\n--- 🚀 Running isolated atom CLI test: ${action} ---\n\n`)
-    
+
     if (action === 'screenshot') await runScreenshotTest()
     else if (action === 'reply') await runReplyTest()
     else if (action === 'switch') await runSwitchTest()
     else console.error(`Unknown test mode: ${action}`)
-
   } catch (err) {
     console.error(err)
   } finally {

@@ -74,7 +74,7 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
 
       case 'provider.reply_text':
         await this.device.sendMessage(event.content)
-        ctx.host.log('reply', event.content)
+        ctx.host.log('reply', `已填入草稿：${event.content}`)
         await this.device.setChatBaseline()
         ctx.state.latestChatBaseline = Date.now()
         ctx.host.enqueue({ type: 'check_unread' })

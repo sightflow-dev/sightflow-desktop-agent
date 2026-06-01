@@ -3,15 +3,14 @@
 
 import { DesktopDevice } from './device'
 import { desktopCapturer } from 'electron'
-import { AppType } from './rpa/types'
 import { BBox } from './rpa/vision-utils'
 
 export class MockDevice implements DesktopDevice {
-  setAppType(_appType: AppType): void {
+  setAppType(): void {
     // Mock 不依赖窗口类型
   }
 
-  setApiKey(_apiKey: string): void {
+  setApiKey(): void {
     // Mock: 不需要 API key
   }
 

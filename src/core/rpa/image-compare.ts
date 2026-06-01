@@ -10,10 +10,9 @@ import { PNG } from 'pngjs'
 
 // pixelmatch v7 是纯 ESM 包，Rollup CJS interop 可能把 module 对象当 default export
 // 运行时 fallback：如果不是函数就取 .default
+const pixelmatchModule = _pixelmatch as typeof _pixelmatch & { default?: typeof _pixelmatch }
 const pixelmatch: typeof _pixelmatch =
-  typeof _pixelmatch === 'function'
-    ? _pixelmatch
-    : ((_pixelmatch as any).default as typeof _pixelmatch)
+  typeof _pixelmatch === 'function' ? _pixelmatch : (pixelmatchModule.default ?? _pixelmatch)
 
 export interface CompareResult {
   /** 是否有变化 */

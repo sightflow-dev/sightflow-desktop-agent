@@ -1,9 +1,15 @@
-import { app } from 'electron'
+import { app, utilityProcess } from 'electron'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ProviderAdapter, ProviderEvent, ProviderInput } from '../core/session-types'
+import {
+  CUSTOM_PROVIDER_EXECUTION_ENV,
+  assertProviderEntryIntegrity,
+  isCustomProviderExecutionAllowed,
+  sha256
+} from './security-policy'
 
 export const BUILTIN_DOUBAO_PROVIDER_ID = 'volcengine-ark'
 
@@ -59,6 +65,8 @@ export interface InstalledProviderInfo {
   version: string
   entryFile: string
   installedAt: string
+  entrySha256?: string
+  sourceUrl?: string
 }
 
 export interface ProviderInstallResult {
@@ -66,7 +74,7 @@ export interface ProviderInstallResult {
   manifest: ProviderBundleManifest
 }
 
-interface ProviderBundleModule {
+export interface ProviderBundleModule {
   manifest?: { id?: string; apiVersion?: number }
   createProvider?: (context: ProviderBundleContext) => {
     run(input: ProviderInput): AsyncIterable<ProviderEvent>
@@ -77,11 +85,13 @@ interface ProviderBundleModule {
           run(input: ProviderInput): AsyncIterable<ProviderEvent>
         }
       }
-    | ((context: ProviderBundleContext) => { run(input: ProviderInput): AsyncIterable<ProviderEvent> })
+    | ((context: ProviderBundleContext) => {
+        run(input: ProviderInput): AsyncIterable<ProviderEvent>
+      })
 }
 
 export interface ProviderBundleContext {
-  providerConfig: Record<string, any>
+  providerConfig: Record<string, unknown>
   host: {
     log(message: string): void
     platform: string
@@ -109,19 +119,132 @@ export class BundleProviderAdapter implements ProviderAdapter {
     }
   }
 
-  private isProviderEvent(event: any): event is ProviderEvent {
-    if (!event || typeof event !== 'object' || typeof event.type !== 'string') return false
+  private isProviderEvent(event: unknown): event is ProviderEvent {
+    if (!isRecord(event) || typeof event.type !== 'string') return false
+    const candidate = event as { type: string; content?: unknown; error?: unknown }
 
-    switch (event.type) {
+    switch (candidate.type) {
       case 'thinking':
       case 'reply_text':
-        return typeof event.content === 'string'
+        return typeof candidate.content === 'string'
       case 'skip':
         return true
       case 'error':
-        return typeof event.error === 'string'
+        return typeof candidate.error === 'string'
       default:
         return false
+    }
+  }
+}
+
+type ProviderWorkerMessage =
+  | { type: 'event'; requestId: string; event: ProviderEvent }
+  | { type: 'log'; requestId: string; message: string }
+  | { type: 'done'; requestId: string }
+  | { type: 'error'; requestId: string; error: string }
+
+const PROVIDER_RUN_TIMEOUT_MS = 120_000
+
+class UtilityProcessProviderAdapter implements ProviderAdapter {
+  constructor(
+    private readonly installed: InstalledProviderInfo,
+    private readonly providerConfig: Record<string, unknown>,
+    private readonly manifest: ProviderBundleManifest
+  ) {}
+
+  async *run(input: ProviderInput): AsyncIterable<ProviderEvent> {
+    const requestId = `${this.manifest.id}:${Date.now()}:${Math.random().toString(36).slice(2)}`
+    let child: Electron.UtilityProcess
+    try {
+      child = utilityProcess.fork(getProviderWorkerPath(), [], {
+        serviceName: `SightFlow Provider ${this.manifest.id}`,
+        stdio: 'inherit',
+        ...(process.platform === 'darwin' ? { disclaim: true } : {})
+      })
+    } catch (error: unknown) {
+      yield { type: 'error', error: getErrorMessage(error) }
+      return
+    }
+    const queue: ProviderEvent[] = []
+    let done = false
+    let failure: string | null = null
+    let notify: (() => void) | null = null
+
+    const wake = (): void => {
+      notify?.()
+      notify = null
+    }
+    const wait = (): Promise<void> =>
+      new Promise((resolve) => {
+        notify = resolve
+      })
+
+    const timeout = setTimeout(() => {
+      failure = `Provider ${this.manifest.id} timed out after ${PROVIDER_RUN_TIMEOUT_MS}ms`
+      done = true
+      child.kill()
+      wake()
+    }, PROVIDER_RUN_TIMEOUT_MS)
+
+    child.on('message', (message: unknown) => {
+      const workerMessage = parseProviderWorkerMessage(message)
+      if (!workerMessage || workerMessage.requestId !== requestId) return
+
+      if (workerMessage.type === 'event') {
+        queue.push(workerMessage.event)
+      } else if (workerMessage.type === 'log') {
+        console.log(`[ProviderWorker:${this.manifest.id}] ${workerMessage.message}`)
+      } else if (workerMessage.type === 'done') {
+        done = true
+      } else {
+        failure = workerMessage.error
+        done = true
+      }
+      wake()
+    })
+
+    child.on('exit', (code: number) => {
+      if (!done && !failure) {
+        failure = `Provider ${this.manifest.id} exited before completing (code ${code})`
+      }
+      done = true
+      wake()
+    })
+
+    child.on('error', (type: 'FatalError', location: string) => {
+      failure = `Provider ${this.manifest.id} crashed: ${type} at ${location}`
+      done = true
+      wake()
+    })
+
+    child.postMessage({
+      type: 'run',
+      requestId,
+      payload: {
+        entryFile: this.installed.entryFile,
+        manifest: this.manifest,
+        providerConfig: this.providerConfig,
+        input,
+        appVersion: app.getVersion()
+      }
+    })
+
+    try {
+      while (!done || queue.length > 0) {
+        const event = queue.shift()
+        if (event) {
+          yield event
+          continue
+        }
+        await wait()
+      }
+
+      if (failure) {
+        yield { type: 'error', error: failure }
+      }
+    } finally {
+      clearTimeout(timeout)
+      child.kill()
     }
   }
 }
@@ -136,6 +259,7 @@ export async function installProviderFromUrl(manifestUrl: string): Promise<Provi
   const manifest = validateManifest(JSON.parse(manifestContent))
   const entryUrl = new URL(manifest.entry, normalizedUrl).toString()
   const entryContent = await readUrlText(entryUrl)
+  const entrySha256 = sha256(entryContent)
   const installDir = getProviderInstallDir(manifest.id, manifest.version)
   const manifestFile = path.join(installDir, 'manifest.json')
   const entryFile = path.join(installDir, path.basename(manifest.entry))
@@ -150,7 +274,9 @@ export async function installProviderFromUrl(manifestUrl: string): Promise<Provi
       name: manifest.name,
       version: manifest.version,
       entryFile,
-      installedAt: new Date().toISOString()
+      installedAt: new Date().toISOString(),
+      entrySha256,
+      sourceUrl: normalizedUrl
     },
     manifest
   }
@@ -224,7 +350,7 @@ export async function getBuiltinDoubaoInstalledInfo(): Promise<InstalledProvider
 
 /** 直接加载内置 doubao provider；调用方负责传入合并好的 config（含 apiKey） */
 export async function loadBuiltinDoubaoProvider(
-  providerConfig: Record<string, any>
+  providerConfig: Record<string, unknown>
 ): Promise<{ provider: ProviderAdapter; manifest: ProviderBundleManifest }> {
   const installed = await getBuiltinDoubaoInstalledInfo()
   if (!installed) {
@@ -235,7 +361,7 @@ export async function loadBuiltinDoubaoProvider(
 
 export function validateProviderConfig(
   manifest: ProviderBundleManifest,
-  config: Record<string, any>
+  config: Record<string, unknown>
 ): { valid: boolean; error?: string } {
   const required = manifest.configSchema.required || []
   for (const key of required) {
@@ -274,8 +400,18 @@ export function validateProviderConfig(
 
 export async function loadInstalledProvider(
   installed: InstalledProviderInfo,
-  providerConfig: Record<string, any>
+  providerConfig: Record<string, unknown>
 ): Promise<{ provider: ProviderAdapter; manifest: ProviderBundleManifest }> {
+  const isBuiltin = isBuiltinProviderInfo(installed)
+  if (!isBuiltin) {
+    if (!isCustomProviderExecutionAllowed()) {
+      throw new Error(
+        `自定义 Provider 代码执行默认关闭。确认信任该 Provider 后，设置 ${CUSTOM_PROVIDER_EXECUTION_ENV}=1 再启动。`
+      )
+    }
+    await verifyInstalledProviderIntegrity(installed)
+  }
+
   const manifest = await getInstalledProviderManifest(installed)
   if (!manifest) {
     throw new Error('未找到已安装服务的配置清单')
@@ -284,6 +420,13 @@ export async function loadInstalledProvider(
   const validation = validateProviderConfig(manifest, providerConfig)
   if (!validation.valid) {
     throw new Error(validation.error || '聊天服务配置无效')
+  }
+
+  if (!isBuiltin) {
+    return {
+      provider: new UtilityProcessProviderAdapter(installed, providerConfig, manifest),
+      manifest
+    }
   }
 
   const loaded = await loadProviderBundleModule(installed.entryFile, manifest)
@@ -311,7 +454,10 @@ export async function loadInstalledProvider(
   }
 }
 
-async function loadProviderBundleModule(entryFile: string, manifest: ProviderBundleManifest): Promise<ProviderBundleModule> {
+async function loadProviderBundleModule(
+  entryFile: string,
+  manifest: ProviderBundleManifest
+): Promise<ProviderBundleModule> {
   if (shouldUseEsmLoader(manifest, entryFile)) {
     // ESM has no writable require cache, so append a query string to force a fresh module instance.
     const entryUrl = pathToFileURL(entryFile)
@@ -325,9 +471,7 @@ async function loadProviderBundleModule(entryFile: string, manifest: ProviderBun
   return runtimeRequire(resolvedEntry) as ProviderBundleModule
 }
 
-function resolveCreateProvider(
-  loaded: ProviderBundleModule
-):
+function resolveCreateProvider(loaded: ProviderBundleModule):
   | ((context: ProviderBundleContext) => {
       run(input: ProviderInput): AsyncIterable<ProviderEvent>
     })
@@ -336,7 +480,11 @@ function resolveCreateProvider(
     return loaded.createProvider
   }
 
-  if (loaded.default && typeof loaded.default === 'object' && typeof loaded.default.createProvider === 'function') {
+  if (
+    loaded.default &&
+    typeof loaded.default === 'object' &&
+    typeof loaded.default.createProvider === 'function'
+  ) {
     return loaded.default.createProvider
   }
 
@@ -364,8 +512,60 @@ function isLegacyEsmEntry(entryFile: string): boolean {
   return extension === '.mjs' || extension === '.mts'
 }
 
-function validateManifest(input: any): ProviderBundleManifest {
-  if (!input || typeof input !== 'object') {
+function getProviderWorkerPath(): string {
+  return path.join(__dirname, 'provider-worker.js')
+}
+
+function parseProviderWorkerMessage(message: unknown): ProviderWorkerMessage | null {
+  if (
+    !isRecord(message) ||
+    typeof message.type !== 'string' ||
+    typeof message.requestId !== 'string'
+  ) {
+    return null
+  }
+
+  switch (message.type) {
+    case 'event':
+      return isProviderEvent(message.event)
+        ? { type: 'event', requestId: message.requestId, event: message.event }
+        : null
+    case 'log':
+      return typeof message.message === 'string'
+        ? { type: 'log', requestId: message.requestId, message: message.message }
+        : null
+    case 'done':
+      return { type: 'done', requestId: message.requestId }
+    case 'error':
+      return typeof message.error === 'string'
+        ? { type: 'error', requestId: message.requestId, error: message.error }
+        : null
+    default:
+      return null
+  }
+}
+
+function isProviderEvent(event: unknown): event is ProviderEvent {
+  if (!isRecord(event) || typeof event.type !== 'string') return false
+  switch (event.type) {
+    case 'thinking':
+    case 'reply_text':
+      return typeof event.content === 'string'
+    case 'skip':
+      return true
+    case 'error':
+      return typeof event.error === 'string'
+    default:
+      return false
+  }
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function validateManifest(input: unknown): ProviderBundleManifest {
+  if (!isRecord(input)) {
     throw new Error('Manifest 格式无效')
   }
   if (input.apiVersion !== 1) {
@@ -383,30 +583,48 @@ function validateManifest(input: any): ProviderBundleManifest {
   if (typeof input.entry !== 'string' || !input.entry.trim()) {
     throw new Error('Manifest 缺少有效 entry')
   }
-  if (input.moduleType !== undefined && input.moduleType !== 'module' && input.moduleType !== 'commonjs') {
+  if (
+    input.moduleType !== undefined &&
+    input.moduleType !== 'module' &&
+    input.moduleType !== 'commonjs'
+  ) {
     throw new Error('Manifest moduleType 仅支持 "module" 或 "commonjs"')
   }
-  if (!Array.isArray(input.capabilities) || input.capabilities.length !== 1 || input.capabilities[0] !== 'chat') {
+  if (
+    !Array.isArray(input.capabilities) ||
+    input.capabilities.length !== 1 ||
+    input.capabilities[0] !== 'chat'
+  ) {
     throw new Error('Manifest capabilities 仅支持 ["chat"]')
   }
 
   const configSchema = input.configSchema
-  if (!configSchema || configSchema.type !== 'object' || typeof configSchema.properties !== 'object') {
+  if (
+    !isRecord(configSchema) ||
+    configSchema.type !== 'object' ||
+    !isRecord(configSchema.properties)
+  ) {
     throw new Error('Manifest 缺少有效 configSchema')
   }
 
-  for (const [key, field] of Object.entries(configSchema.properties as Record<string, any>)) {
-    if (!field || typeof field !== 'object') {
+  for (const [key, field] of Object.entries(configSchema.properties)) {
+    if (!isRecord(field)) {
       throw new Error(`configSchema.properties.${key} 无效`)
     }
-    if (!['string', 'password', 'select', 'boolean'].includes(field.type)) {
+    if (
+      typeof field.type !== 'string' ||
+      !['string', 'password', 'select', 'boolean'].includes(field.type)
+    ) {
       throw new Error(`字段 ${key} 的类型 ${field.type} 不受支持`)
     }
     if (typeof field.title !== 'string' || !field.title.trim()) {
       throw new Error(`字段 ${key} 缺少 title`)
     }
     if (field.type === 'select') {
-      if (!Array.isArray(field.enum) || field.enum.some((value: unknown) => typeof value !== 'string')) {
+      if (
+        !Array.isArray(field.enum) ||
+        field.enum.some((value: unknown) => typeof value !== 'string')
+      ) {
         throw new Error(`字段 ${key} 的 enum 无效`)
       }
     }
@@ -432,8 +650,21 @@ function validateManifest(input: any): ProviderBundleManifest {
   }
 }
 
+function isRecord(input: unknown): input is Record<string, unknown> {
+  return Boolean(input) && typeof input === 'object'
+}
+
 function getProviderInstallDir(id: string, version: string): string {
   return path.join(app.getPath('userData'), 'providers', id, version)
+}
+
+function isBuiltinProviderInfo(installed: InstalledProviderInfo): boolean {
+  return installed.id === BUILTIN_DOUBAO_PROVIDER_ID && installed.installedAt === '0'
+}
+
+async function verifyInstalledProviderIntegrity(installed: InstalledProviderInfo): Promise<void> {
+  const entryContent = await readFile(installed.entryFile, 'utf8')
+  assertProviderEntryIntegrity(installed, entryContent)
 }
 
 async function readUrlText(targetUrl: string): Promise<string> {
@@ -443,7 +674,7 @@ async function readUrlText(targetUrl: string): Promise<string> {
     return await readFile(fileURLToPath(url), 'utf8')
   }
 
-  if (!['http:', 'https:'].includes(url.protocol)) {
+  if (url.protocol !== 'https:') {
     throw new Error(`不支持的 provider URL 协议: ${url.protocol}`)
   }
 

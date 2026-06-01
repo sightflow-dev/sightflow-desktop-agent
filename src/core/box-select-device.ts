@@ -184,8 +184,8 @@ export class BoxSelectDevice implements DesktopDevice {
     const inputArea = getInputAreaFromCache(this.appType)
     if (!inputArea) throw new Error('尚未测量输入框区域')
     const [x, y] = inputArea.coordinates
-    const ok = await sendReplyByCoordsAction(x, y, text)
-    if (!ok) throw new Error('发送消息失败')
+    const ok = await sendReplyByCoordsAction(x, y, text, 'draft')
+    if (!ok) throw new Error('填写草稿失败')
   }
 
   // 通用 IM 一般单击就能切换会话，统一走 defaultClickPolicy(appType)，

@@ -3,6 +3,7 @@ dist
 out
 .DS_Store
 .eslintcache
+.codegraph/
 *.log*
 
 # Local documents and config

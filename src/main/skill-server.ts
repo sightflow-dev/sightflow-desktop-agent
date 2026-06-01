@@ -10,9 +10,11 @@
  * 回调本身复用主进程已有的引擎启动 / 停止 / 状态查询逻辑，避免逻辑重复。
  */
 import * as http from 'http'
+import { TOKEN_HEADER, extractSkillToken, isAllowedSkillHost } from './security-policy'
 
 const PRIMARY_PORT = 12680
 const FALLBACK_PORT = 12681
+const skillServerToken = process.env.SIGHTFLOW_SKILL_TOKEN?.trim() || ''
 
 export type SkillStartReason =
   | 'no_vision_key'
@@ -57,10 +59,27 @@ function jsonResponse(
   body: Record<string, unknown>
 ): void {
   res.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
+    'Content-Type': 'application/json'
   })
   res.end(JSON.stringify(body))
+}
+
+function requireWriteAuth(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+  if (!skillServerToken) {
+    jsonResponse(res, 503, {
+      ok: false,
+      error: 'skill_token_not_configured',
+      message: 'Set SIGHTFLOW_SKILL_TOKEN before using local start/pause HTTP control.'
+    })
+    return false
+  }
+
+  if (extractSkillToken(req.headers) !== skillServerToken) {
+    jsonResponse(res, 401, { ok: false, error: 'unauthorized' })
+    return false
+  }
+
+  return true
 }
 
 /** 读取 POST body（最大 1KB，防止滥用；当前所有端点都不需要 body） */
@@ -186,11 +205,15 @@ function handleStatus(res: http.ServerResponse): void {
 async function requestHandler(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const { method, url } = req
 
+  if (!isAllowedSkillHost(req.headers.host)) {
+    jsonResponse(res, 403, { ok: false, error: 'invalid_host' })
+    return
+  }
+
   if (method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
+      'Access-Control-Allow-Headers': `Content-Type, Authorization, ${TOKEN_HEADER}`
     })
     res.end()
     return
@@ -198,9 +221,11 @@ async function requestHandler(req: http.IncomingMessage, res: http.ServerRespons
 
   try {
     if (url === '/skill/start' && method === 'POST') {
+      if (!requireWriteAuth(req, res)) return
       await readBody(req)
       await handleStart(res)
     } else if (url === '/skill/pause' && method === 'POST') {
+      if (!requireWriteAuth(req, res)) return
       await readBody(req)
       await handlePause(res)
     } else if (url === '/skill/status' && method === 'GET') {

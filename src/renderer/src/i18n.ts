@@ -64,7 +64,7 @@ const translations = {
     // Toast
     'toast.engineStarted': '引擎已启动',
     'toast.engineStopped': '引擎已停止',
-    'toast.startFailed': '启动失败',
+    'toast.startFailed': '启动失败'
   },
   en: {
     'app.title': 'SightFlow Desktop',
@@ -121,15 +121,15 @@ const translations = {
 
     'toast.engineStarted': 'Engine started',
     'toast.engineStopped': 'Engine stopped',
-    'toast.startFailed': 'Failed to start',
+    'toast.startFailed': 'Failed to start'
   }
 } as const
 
-type TranslationKey = keyof typeof translations['zh']
+type TranslationKey = keyof (typeof translations)['zh']
 
 let currentLocale: Locale = 'zh'
 
-export function setLocale(locale: Locale) {
+export function setLocale(locale: Locale): void {
   currentLocale = locale
 }
 

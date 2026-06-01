@@ -6,6 +6,8 @@
 //   1. 聊天回复：截图 → AI 分析 → 回复文字
 //   2. VLM 视觉检测：截图 → AI 分析 → bbox/point 坐标
 
+import { getErrorMessage, isAbortError } from './error-utils'
+
 export interface AIClientConfig {
   apiKey: string
   model: string
@@ -27,6 +29,23 @@ const REPLY_SYSTEM_PROMPT = `你是一个微信自动回复助手。你会收到
 3. 如果最新消息是系统消息、群公告、红包、转账等非对话消息，输出 [SKIP]
 4. 如果无法判断是否需要回复，输出 [SKIP]
 5. 回复要自然、口语化，像真人对话`
+
+type ChatMessage =
+  | { role: 'system'; content: string }
+  | {
+      role: 'user'
+      content:
+        | string
+        | Array<{ type: 'image_url'; image_url: { url: string } } | { type: 'text'; text: string }>
+    }
+
+interface ChatCompletionResponse {
+  choices?: Array<{
+    message?: {
+      content?: unknown
+    }
+  }>
+}
 
 export class AIClient {
   private config: AIClientConfig
@@ -61,9 +80,9 @@ export class AIClient {
       }
 
       return replyText.trim()
-    } catch (error: any) {
+    } catch (error: unknown) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
-      console.error(`[AIClient] 聊天回复失败 (${elapsed}s):`, error?.message || error)
+      console.error(`[AIClient] 聊天回复失败 (${elapsed}s):`, getErrorMessage(error))
       throw error
     }
   }
@@ -84,9 +103,7 @@ export class AIClient {
    * 纯文本调用（不带图片）— 用于 testConnection 等
    */
   async callText(userMessage: string): Promise<string> {
-    const data = await this.callAPI([
-      { role: 'user', content: userMessage }
-    ])
+    const data = await this.callAPI([{ role: 'user', content: userMessage }])
     return this.extractText(data)
   }
 
@@ -97,8 +114,8 @@ export class AIClient {
     try {
       await this.callText('你好，请回复"连接成功"。')
       return { success: true }
-    } catch (error: any) {
-      return { success: false, error: error?.message || String(error) }
+    } catch (error: unknown) {
+      return { success: false, error: getErrorMessage(error) }
     }
   }
 
@@ -121,9 +138,7 @@ export class AIClient {
     imageBase64: string
   ): Promise<string> {
     const rawBase64 = this.stripBase64Prefix(imageBase64)
-    const imageUrl = rawBase64.startsWith('http')
-      ? rawBase64
-      : `data:image/png;base64,${rawBase64}`
+    const imageUrl = rawBase64.startsWith('http') ? rawBase64 : `data:image/png;base64,${rawBase64}`
 
     const data = await this.callAPI([
       { role: 'system', content: systemPrompt },
@@ -144,7 +159,7 @@ export class AIClient {
    * thinking 字段是火山方舟对标 OpenAI Responses API 的扩展参数，
    * 在非火山供应商上会被忽略，放在这里不影响兼容性
    */
-  private async callAPI(messages: any[]): Promise<any> {
+  private async callAPI(messages: ChatMessage[]): Promise<ChatCompletionResponse> {
     const url = `${this.config.baseURL}/chat/completions`
     const TIMEOUT_MS = 30_000 // 30 秒超时
     const callStart = Date.now()
@@ -184,17 +199,17 @@ export class AIClient {
         throw new Error(`API request failed: ${response.status} - ${errorText.slice(0, 200)}`)
       }
 
-      const json = await response.json()
+      const json = (await response.json()) as ChatCompletionResponse
       const totalElapsed = ((Date.now() - callStart) / 1000).toFixed(1)
       console.log(`[AIClient] 解析完成 (${totalElapsed}s)`)
       return json
-    } catch (error: any) {
+    } catch (error: unknown) {
       const elapsed = ((Date.now() - callStart) / 1000).toFixed(1)
-      if (error?.name === 'AbortError') {
+      if (isAbortError(error)) {
         console.error(`[AIClient] ⏱ 超时！已等待 ${elapsed}s，上限 ${TIMEOUT_MS / 1000}s`)
         throw new Error(`AI API 请求超时 (${TIMEOUT_MS / 1000}s)`)
       }
-      console.error(`[AIClient] 请求异常 (${elapsed}s):`, error?.message)
+      console.error(`[AIClient] 请求异常 (${elapsed}s):`, getErrorMessage(error))
       throw error
     } finally {
       clearTimeout(timer)
@@ -205,7 +220,7 @@ export class AIClient {
    * 从 OpenAI 兼容 /chat/completions 返回值中提取文本
    * 格式: { choices: [{ message: { role, content: string } }] }
    */
-  private extractText(responseData: any): string {
+  private extractText(responseData: ChatCompletionResponse): string {
     const content = responseData?.choices?.[0]?.message?.content
     if (typeof content === 'string' && content.length > 0) {
       return content

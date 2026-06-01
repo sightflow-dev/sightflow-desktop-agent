@@ -8,6 +8,7 @@
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
+    "test:safety": "node --test -r ts-node/register/transpile-only test/safety-policy.test.ts",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
@@ -61,5 +62,19 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vite": "^7.2.6"
+  },
+  "overrides": {
+    "@tootallnate/once": "^3.0.1",
+    "@xmldom/xmldom": "0.8.13",
+    "fast-uri": "^3.1.2",
+    "ip-address": "^10.2.0",
+    "node-addon-api": "^8.8.0",
+    "node-gyp": "^11.5.0",
+    "postcss": "^8.5.15",
+    "tar": "^7.5.15",
+    "tmp": "^0.2.7",
+    "minimatch@10.2.5": {
+      "brace-expansion": "^5.0.6"
+    }
   }
 }
