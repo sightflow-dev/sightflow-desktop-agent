@@ -136,6 +136,18 @@ https://example.com/provider/manifest.json
 file:///absolute/path/to/provider/manifest.json
 ```
 
+远程 Provider 只接受 HTTPS 地址；本地 `file://` 仅用于开发和离线安装。安装后应用会记录 bundle 入口文件的 SHA-256 摘要，启动时如果入口文件被改动会拒绝执行。
+
+自定义 Provider 是本地可执行 JS，默认不执行。确认来源可信后，需要在启动应用前设置：
+
+```bash
+SIGHTFLOW_ALLOW_CUSTOM_PROVIDER_CODE=1
+```
+
+内置 Doubao Provider 不需要这个开关。
+
+启用后的自定义 Provider 会运行在独立的 Electron utility process 中，并设置单次运行超时。这个隔离能避免 Provider 代码直接进入主进程，但它不是完整 OS 级沙箱；不要安装不可信来源的 Provider。
+
 注意这里填写的是 `manifest.json` 地址，不是 bundle 文件地址。应用会根据 manifest 中的 `entry` 下载或读取实际入口文件。
 
 ## Doubao Provider 示例

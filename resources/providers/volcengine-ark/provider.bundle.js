@@ -1,5 +1,6 @@
-const DEFAULT_MODEL = 'doubao-seed-2-0-lite-260215'
+const DEFAULT_MODEL = 'doubao-seed-2-0-lite-260428'
 const DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
+const DEFAULT_TIMEOUT_MS = 30_000
 const DEFAULT_PROMPT = `你是一个微信自动回复助手。你会收到一张微信/企业微信的聊天窗口截图。
 
 ## 你的任务
@@ -40,6 +41,7 @@ export function createProvider(context) {
           screenshot: input.screenshot,
           apiKey,
           model: providerConfig.model || DEFAULT_MODEL,
+          baseURL: providerConfig.baseURL || DEFAULT_BASE_URL,
           systemPrompt: providerConfig.systemPrompt || DEFAULT_PROMPT
         })
 
@@ -60,7 +62,7 @@ export function createProvider(context) {
   }
 }
 
-async function requestReply({ screenshot, apiKey, model, systemPrompt }) {
+async function requestReply({ screenshot, apiKey, model, baseURL, systemPrompt }) {
   const body = {
     model,
     messages: [
@@ -77,23 +79,36 @@ async function requestReply({ screenshot, apiKey, model, systemPrompt }) {
     stream: false
   }
 
-  const response = await fetch(`${DEFAULT_BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify(body)
-  })
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
 
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+  try {
+    const response = await fetch(`${String(baseURL).replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    })
+
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status} ${response.statusText}`)
+    }
+
+    const json = await response.json()
+    return json && json.choices && json.choices[0] && json.choices[0].message
+      ? json.choices[0].message.content || ''
+      : ''
+  } catch (error) {
+    if (error && error.name === 'AbortError') {
+      throw new Error(`API request timeout after ${DEFAULT_TIMEOUT_MS / 1000}s`)
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
   }
-
-  const json = await response.json()
-  return json && json.choices && json.choices[0] && json.choices[0].message
-    ? json.choices[0].message.content || ''
-    : ''
 }
 
 function normalizeImageUrl(screenshot) {

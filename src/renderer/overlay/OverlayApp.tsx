@@ -105,9 +105,7 @@ function LayoutPreview({
     return 'done'
   }
   const cell = (key: WizardStepKey, modifier: string): React.JSX.Element => (
-    <div
-      className={`overlay__layout-cell overlay__layout-cell--${modifier} is-${stateOf(key)}`}
-    />
+    <div className={`overlay__layout-cell overlay__layout-cell--${modifier} is-${stateOf(key)}`} />
   )
   return (
     <div className="overlay__layout-preview" aria-hidden>
@@ -314,9 +312,7 @@ export function OverlayApp(): React.ReactElement {
             </div>
             <svg
               className={
-                isInput
-                  ? 'overlay__crosshair overlay__crosshair--input'
-                  : 'overlay__crosshair'
+                isInput ? 'overlay__crosshair overlay__crosshair--input' : 'overlay__crosshair'
               }
               style={{ left: cx, top: cy }}
               viewBox="0 0 24 24"

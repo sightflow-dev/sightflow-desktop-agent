@@ -8,6 +8,7 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
+          'provider-worker': resolve(__dirname, 'src/main/provider-worker.ts'),
           'test-cli': resolve(__dirname, 'scripts/test-cli.ts')
         }
       }

@@ -7,6 +7,7 @@ import {
   SessionEvent
 } from './session-types'
 import { AppType } from './rpa/types'
+import { getErrorMessage } from './error-utils'
 
 interface RuntimeHostOptions<TState> {
   appType: AppType
@@ -41,14 +42,14 @@ export class RuntimeHost<TState> {
 
     try {
       await this.options.channel.onStart(this.context)
-    } catch (error: any) {
-      this.log('error', error?.message || String(error))
+    } catch (error: unknown) {
+      this.log('error', getErrorMessage(error))
       await this.stopSession('start_failed')
       throw error
     }
   }
 
-  async stopSession(_reason?: string): Promise<void> {
+  async stopSession(reason?: string): Promise<void> {
     if (!this.running || this.stopping) return
 
     this.stopping = true
@@ -65,7 +66,7 @@ export class RuntimeHost<TState> {
     } finally {
       this.processingQueue = false
       this.stopping = false
-      this.log('skip', '引擎已停止')
+      this.log('skip', reason ? `引擎已停止: ${reason}` : '引擎已停止')
     }
   }
 
@@ -117,8 +118,8 @@ export class RuntimeHost<TState> {
 
         await this.options.channel.onEvent(event, this.context)
       }
-    } catch (error: any) {
-      this.log('error', error?.message || String(error))
+    } catch (error: unknown) {
+      this.log('error', getErrorMessage(error))
       await this.stopSession('runtime_error')
     } finally {
       this.processingQueue = false

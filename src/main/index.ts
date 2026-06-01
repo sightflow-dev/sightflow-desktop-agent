@@ -9,6 +9,8 @@ import { DesktopDevice } from '../core/device'
 import { RPADevice } from '../core/rpa-device'
 import { BoxSelectDevice } from '../core/box-select-device'
 import { RuntimeHost } from '../core/runtime-host'
+import { getErrorMessage } from '../core/error-utils'
+import { ProviderAdapter } from '../core/session-types'
 import {
   createInitialGenericChannelState,
   GenericChannelSession
@@ -32,9 +34,12 @@ import {
   startSkillServer,
   stopSkillServer
 } from './skill-server'
-const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
+const StoreClass =
+  typeof Store === 'function'
+    ? Store
+    : ((Store as unknown as { default: typeof Store }).default as typeof Store)
 
-const FIXED_ARK_MODEL = 'doubao-seed-2-0-lite-260215'
+const FIXED_ARK_MODEL = 'doubao-seed-2-0-lite-260428'
 const FIXED_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3'
 
 interface PerAppCapture {
@@ -51,7 +56,7 @@ interface AppSettings {
   chatProvider: {
     manifestUrl: string
     installed: InstalledProviderInfo | null
-    config: Record<string, any>
+    config: Record<string, unknown>
   }
   // 默认抓取策略（仅当 appType 没有 per-app 覆盖时生效）
   defaultCaptureStrategy: CaptureStrategy
@@ -145,7 +150,9 @@ function createWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
   })
 
@@ -187,7 +194,9 @@ function createSettingsWindow(): void {
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
   })
 
@@ -215,6 +224,33 @@ function createSettingsWindow(): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function normalizeInstalledProviderInfo(value: unknown): InstalledProviderInfo | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.id !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.version !== 'string' ||
+    typeof value.entryFile !== 'string' ||
+    typeof value.installedAt !== 'string'
+  ) {
+    return null
+  }
+
+  return {
+    id: value.id,
+    name: value.name,
+    version: value.version,
+    entryFile: value.entryFile,
+    installedAt: value.installedAt,
+    entrySha256: typeof value.entrySha256 === 'string' ? value.entrySha256 : undefined,
+    sourceUrl: typeof value.sourceUrl === 'string' ? value.sourceUrl : undefined
+  }
+}
+
+function persistSettings(settings: AppSettings): void {
+  settingsStore.set(settings as unknown as Record<string, unknown>)
 }
 
 function normalizeFieldType(value: unknown, format?: unknown): ProviderConfigFieldType {
@@ -375,33 +411,37 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('settings:get', async (_event, key: string) => {
     const settings = normalizeSettings(settingsStore.store)
-    return (settings as Record<string, any>)[key]
+    return (settings as unknown as Record<string, unknown>)[key]
   })
 
-  ipcMain.handle('settings:set', async (_event, data: Record<string, any>) => {
+  ipcMain.handle('settings:set', async (_event, data: Record<string, unknown>) => {
     const current = normalizeSettings(settingsStore.store)
+    const visionPatch = isRecord(data.vision) ? data.vision : {}
+    const chatProviderPatch = isRecord(data.chatProvider) ? data.chatProvider : {}
+    const providerConfigPatch = isRecord(chatProviderPatch.config) ? chatProviderPatch.config : {}
+    const capturePatch = isRecord(data.capture) ? normalizeCapture(data.capture) : {}
     const next = {
       ...current,
       ...data,
       vision: {
         ...current.vision,
-        ...(data.vision || {})
+        ...visionPatch
       },
       chatProvider: {
         ...current.chatProvider,
-        ...(data.chatProvider || {}),
+        ...chatProviderPatch,
         config: {
           ...current.chatProvider.config,
-          ...(data.chatProvider?.config || {})
+          ...providerConfigPatch
         }
       },
       capture: {
         ...current.capture,
-        ...(data.capture || {})
+        ...capturePatch
       }
     } satisfies AppSettings
 
-    settingsStore.set(next as any)
+    persistSettings(next)
     return { success: true }
   })
 
@@ -409,7 +449,7 @@ app.whenReady().then(async () => {
     try {
       const result = await installProviderFromUrl(manifestUrl)
       const current = normalizeSettings(settingsStore.store)
-      settingsStore.set({
+      persistSettings({
         ...current,
         chatProvider: {
           ...current.chatProvider,
@@ -417,15 +457,15 @@ app.whenReady().then(async () => {
           installed: result.installed,
           config: withSchemaDefaults(result.manifest.configSchema, current.chatProvider.config)
         }
-      } as any)
+      })
 
       return {
         success: true,
         installed: result.installed,
         manifest: result.manifest
       }
-    } catch (error: any) {
-      return { success: false, error: error?.message || String(error) }
+    } catch (error: unknown) {
+      return { success: false, error: getErrorMessage(error) }
     }
   })
 
@@ -547,7 +587,7 @@ app.whenReady().then(async () => {
           }
         }
       }
-      settingsStore.set(next as any)
+      persistSettings(next)
       notifyCaptureRegionsUpdated(appType, result.regions)
       return { success: true, regions: result.regions }
     }
@@ -568,7 +608,7 @@ app.whenReady().then(async () => {
         [key]: { strategy: current.capture[key]?.strategy ?? 'auto', regions: null }
       }
     }
-    settingsStore.set(next as any)
+    persistSettings(next)
     notifyCaptureRegionsUpdated(key, null)
     return { success: true }
   })
@@ -627,7 +667,7 @@ app.on('before-quit', () => {
 
 // ── 引擎启动 / 暂停核心逻辑（IPC 与 Skill HTTP Server 共用） ──
 
-async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
+async function startEngineCore(rawConfig?: unknown): Promise<SkillStartResult> {
   if (runtime?.isRunning()) {
     return { ok: false, reason: 'already_running', message: '引擎已在运行中' }
   }
@@ -646,7 +686,7 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
     }
 
     // 没有自定义 provider → 走内置 doubao，使用视觉密钥
-    let provider
+    let provider: ProviderAdapter
     if (!settings.chatProvider.installed) {
       const loaded = await loadBuiltinDoubaoProvider({
         ...settings.chatProvider.config,
@@ -693,8 +733,8 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
       const built = await buildDevice(appType, settings, settings.vision.apiKey, log)
       device = built.device
       strategy = built.strategy
-    } catch (err: any) {
-      const message = err?.message || String(err)
+    } catch (err: unknown) {
+      const message = getErrorMessage(err)
       if (message === 'user_cancelled_box_select_wizard') {
         return { ok: false, reason: 'wizard_cancelled', message: '已取消框选，引擎未启动' }
       }
@@ -712,18 +752,18 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
       onLog: log
     })
 
-    runtime.startSession().catch((err: any) => {
+    runtime.startSession().catch((err: unknown) => {
       console.error('[Main] Runtime session error:', err)
     })
 
     notifyEngineStateChanged('running')
 
     return { ok: true }
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
       reason: 'engine_failed',
-      message: error?.message || String(error)
+      message: getErrorMessage(error)
     }
   }
 }
@@ -736,11 +776,11 @@ async function stopEngineCore(stopReason: string): Promise<SkillPauseResult> {
     await runtime.stopSession(stopReason)
     notifyEngineStateChanged('idle')
     return { ok: true }
-  } catch (error: any) {
+  } catch (error: unknown) {
     return {
       ok: false,
       reason: 'pause_failed',
-      message: error?.message || String(error)
+      message: getErrorMessage(error)
     }
   }
 }
@@ -834,7 +874,7 @@ function persistRegionsAndStickyStrategy(
       [appType]: { strategy, regions }
     }
   }
-  settingsStore.set(next as any)
+  persistSettings(next)
   notifyCaptureRegionsUpdated(appType, regions)
 }
 
@@ -914,14 +954,14 @@ function normalizeCapture(raw: unknown): Partial<Record<AppType, PerAppCapture>>
   return out
 }
 
-function normalizeSettings(raw: any): AppSettings {
-  const oldApiKey = typeof raw?.apiKey === 'string' ? raw.apiKey : ''
-  const oldModel = typeof raw?.model === 'string' && raw.model ? raw.model : FIXED_ARK_MODEL
-  const oldSystemPrompt = typeof raw?.systemPrompt === 'string' ? raw.systemPrompt : ''
-  const rawProviderConfig =
-    raw?.chatProvider?.config && typeof raw.chatProvider.config === 'object'
-      ? { ...raw.chatProvider.config }
-      : {}
+function normalizeSettings(raw: unknown): AppSettings {
+  const input = isRecord(raw) ? raw : {}
+  const chatProvider = isRecord(input.chatProvider) ? input.chatProvider : {}
+  const vision = isRecord(input.vision) ? input.vision : {}
+  const oldApiKey = typeof input.apiKey === 'string' ? input.apiKey : ''
+  const oldModel = typeof input.model === 'string' && input.model ? input.model : FIXED_ARK_MODEL
+  const oldSystemPrompt = typeof input.systemPrompt === 'string' ? input.systemPrompt : ''
+  const rawProviderConfig = isRecord(chatProvider.config) ? { ...chatProvider.config } : {}
 
   // Keep arbitrary provider config keys, and only backfill legacy volcengine fields for old persisted settings.
   if (rawProviderConfig.apiKey === undefined && oldApiKey) {
@@ -935,25 +975,30 @@ function normalizeSettings(raw: any): AppSettings {
   }
 
   return {
-    locale: raw?.locale === 'en' ? 'en' : 'zh',
-    appType: coerceAppType(raw?.appType),
+    locale: input.locale === 'en' ? 'en' : 'zh',
+    appType: coerceAppType(input.appType),
     vision: {
-      apiKey: raw?.vision?.apiKey || oldApiKey || ''
+      apiKey: typeof vision.apiKey === 'string' ? vision.apiKey : oldApiKey || ''
     },
     chatProvider: {
-      manifestUrl: raw?.chatProvider?.manifestUrl || raw?.providerManifestUrl || '',
-      installed: raw?.chatProvider?.installed || null,
+      manifestUrl:
+        typeof chatProvider.manifestUrl === 'string'
+          ? chatProvider.manifestUrl
+          : typeof input.providerManifestUrl === 'string'
+            ? input.providerManifestUrl
+            : '',
+      installed: normalizeInstalledProviderInfo(chatProvider.installed),
       config: rawProviderConfig
     },
-    defaultCaptureStrategy: coerceStrategy(raw?.defaultCaptureStrategy, 'auto'),
-    capture: normalizeCapture(raw?.capture)
+    defaultCaptureStrategy: coerceStrategy(input.defaultCaptureStrategy, 'auto'),
+    capture: normalizeCapture(input.capture)
   }
 }
 
 function withSchemaDefaults(
   schema: { properties: Record<string, { default?: unknown }> },
-  current: Record<string, any>
-): Record<string, any> {
+  current: Record<string, unknown>
+): Record<string, unknown> {
   const next = { ...current }
   for (const [key, field] of Object.entries(schema.properties || {})) {
     if (next[key] === undefined && field.default !== undefined) {

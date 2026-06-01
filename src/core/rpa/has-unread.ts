@@ -9,6 +9,7 @@
 //   含边缘分析 + 自适应 crop 扩展重试
 
 import { AIClient } from '../ai-client'
+import { getErrorMessage } from '../error-utils'
 import { AppType } from './types'
 import { captureWechatWindow, calculateRedDotPercentage } from './screenshot-utils'
 import { getWindowInfo } from './window-utils'
@@ -53,10 +54,7 @@ export async function hasUnreadMessage(
     }
 
     // 3. bbox → crop bounds
-    const cropBounds = bboxToCropBounds(
-      unreadArea.chatEntranceArea.bbox,
-      windowInfo.bounds
-    )
+    const cropBounds = bboxToCropBounds(unreadArea.chatEntranceArea.bbox, windowInfo.bounds)
 
     // 4. 局部截图
     const screenshotResult = await captureWechatWindow(appType, cropBounds)
@@ -88,9 +86,9 @@ export async function hasUnreadMessage(
       percentage,
       chatEntranceArea: unreadArea.chatEntranceArea
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[HasUnread] Step 1 失败:', error)
-    return { success: false, error: error?.message || String(error) }
+    return { success: false, error: getErrorMessage(error) }
   }
 }
 
@@ -116,10 +114,10 @@ export async function isChatContactUnread(
   firstContact?: { bbox: BBox; coordinates: [number, number] }
   error?: string
 }> {
-  const THRESHOLD = 4         // 4% 红点占比阈值
+  const THRESHOLD = 4 // 4% 红点占比阈值
   const NO_RED_THRESHOLD = 0.5 // 低于此值认为没有红点
   const MAX_RETRIES = 2
-  const EXPAND_STEP = 0.1     // 每次扩展 10%
+  const EXPAND_STEP = 0.1 // 每次扩展 10%
 
   try {
     console.log('[HasUnread] Step 2: 细检测 — 检测联系人头像红点')
@@ -142,7 +140,7 @@ export async function isChatContactUnread(
     const cropBounds = bboxToCropBounds(firstContact.bbox, windowInfo.bounds)
     cropBounds.width = cropBounds.height // 1:1 正方形
 
-    let currentCrop = { ...cropBounds }
+    const currentCrop = { ...cropBounds }
     let retryCount = 0
     let lastPercentage = 0
 
@@ -159,10 +157,7 @@ export async function isChatContactUnread(
       }
 
       // 红点像素扫描
-      const percentage = await calculateRedDotPercentage(
-        screenshotResult.screenshotBase64,
-        true
-      )
+      const percentage = await calculateRedDotPercentage(screenshotResult.screenshotBase64, true)
 
       if (percentage === null) {
         return { success: false, error: '红点计算失败' }
@@ -201,9 +196,7 @@ export async function isChatContactUnread(
         percentage: `${percentage.toFixed(2)}%`
       })
 
-      const edgeAnalysis = await analyzeRedPixelEdge(
-        screenshotResult.screenshotBase64
-      )
+      const edgeAnalysis = await analyzeRedPixelEdge(screenshotResult.screenshotBase64)
 
       if (!edgeAnalysis || !edgeAnalysis.hasEdgeTouch) {
         // 无边缘触碰，用当前结果
@@ -256,9 +249,9 @@ export async function isChatContactUnread(
       percentage: lastPercentage,
       firstContact
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[HasUnread] Step 2 失败:', error)
-    return { success: false, error: error?.message || String(error) }
+    return { success: false, error: getErrorMessage(error) }
   }
 }
 
@@ -276,15 +269,10 @@ interface EdgeAnalysis {
  * 分析红色像素的边缘分布
  * 如果红色像素触碰了 crop 的边缘，说明红点可能被截断了
  */
-async function analyzeRedPixelEdge(
-  base64Image: string
-): Promise<EdgeAnalysis | null> {
+async function analyzeRedPixelEdge(base64Image: string): Promise<EdgeAnalysis | null> {
   try {
     const { Jimp, intToRGBA } = await import('jimp')
-    const buffer = Buffer.from(
-      base64Image.replace(/^data:image\/\w+;base64,/, ''),
-      'base64'
-    )
+    const buffer = Buffer.from(base64Image.replace(/^data:image\/\w+;base64,/, ''), 'base64')
     const image = await Jimp.read(buffer)
     const { width, height } = image.bitmap
 

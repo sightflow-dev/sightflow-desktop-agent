@@ -2,6 +2,7 @@ import { intToRGBA, Jimp } from 'jimp'
 import { desktopCapturer, screen } from 'electron'
 import { getWindowInfo, getWechatWindowInfo } from './window-utils'
 import { AppType, ScreenRect } from './types'
+import { getErrorMessage } from '../error-utils'
 
 const IS_MAC = process.platform === 'darwin'
 
@@ -15,6 +16,28 @@ interface ScreenshotCache {
     scaleFactor: number
   }
   timestamp: number
+}
+
+interface CaptureWechatWindowResult {
+  success: boolean
+  screenshotBase64?: string
+  nativeImage?: Electron.NativeImage
+  bounds?: { x: number; y: number; width: number; height: number }
+  display?: {
+    id: number
+    bounds: { x: number; y: number; width: number; height: number }
+    scaleFactor: number
+  }
+  timestamp?: number
+  error?: string
+}
+
+interface TakeWechatScreenshotResult {
+  success: boolean
+  screenshot?: string
+  bounds?: { x: number; y: number; width: number; height: number }
+  scaleFactor?: number
+  error?: string
 }
 
 const screenshotCache = new Map<string, ScreenshotCache>()
@@ -45,7 +68,11 @@ export function getChatContactAvatarBounds(): {
   return { x: 70, y: 64, width: 46, height: 68 }
 }
 
-export const takeWeChatScreenshot = async ({ wechatType = 'wechat' }: { wechatType: AppType }) => {
+export const takeWeChatScreenshot = async ({
+  wechatType = 'wechat'
+}: {
+  wechatType: AppType
+}): Promise<TakeWechatScreenshotResult> => {
   try {
     const windowInfo = await getWindowInfo(wechatType, true)
     if (!windowInfo) return { success: false, error: '未找到应用窗口' }
@@ -55,8 +82,8 @@ export const takeWeChatScreenshot = async ({ wechatType = 'wechat' }: { wechatTy
       bounds: windowInfo.bounds,
       scaleFactor: windowInfo.scaleFactor
     }
-  } catch (error: any) {
-    return { success: false, error: error.message }
+  } catch (error: unknown) {
+    return { success: false, error: getErrorMessage(error) }
   }
 }
 
@@ -85,7 +112,7 @@ export async function calculateRedDotPercentage(
       }
     }
     return (redPixelCount / totalPixels) * 100
-  } catch (error) {
+  } catch {
     return null
   }
 }
@@ -93,7 +120,7 @@ export async function calculateRedDotPercentage(
 export async function captureWechatWindow(
   appType: AppType = 'wechat',
   crop?: { x: number; y: number; width: number; height: number }
-): Promise<any> {
+): Promise<CaptureWechatWindowResult> {
   try {
     const windowCoreResult = await getWechatWindowInfo(appType)
     if (!windowCoreResult) return { success: false, error: '未找到窗口' }
@@ -207,8 +234,8 @@ export async function captureWechatWindow(
       bounds: captureResult.bounds,
       display: captureResult.display
     }
-  } catch (err: any) {
-    return { success: false, error: err.message }
+  } catch (err: unknown) {
+    return { success: false, error: getErrorMessage(err) }
   }
 }
 
@@ -270,8 +297,8 @@ export async function captureScreenRegion(rect: ScreenRect): Promise<{
       nativeImage: cropped,
       display: { id: display.id, bounds: display.bounds, scaleFactor }
     }
-  } catch (err: any) {
-    return { success: false, error: err?.message || String(err) }
+  } catch (err: unknown) {
+    return { success: false, error: getErrorMessage(err) }
   }
 }
 
@@ -338,7 +365,7 @@ export async function captureChatMainArea(appType: AppType): Promise<Electron.Na
       hasScreenshotBase64: Boolean(screenshotResult.screenshotBase64)
     })
     return null
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[captureChatMainArea] 异常:', error)
     return null
   }

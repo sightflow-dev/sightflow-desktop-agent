@@ -75,6 +75,8 @@ interface InstalledProviderInfo {
   version: string
   entryFile: string
   installedAt: string
+  entrySha256?: string
+  sourceUrl?: string
 }
 
 type ProviderConfigFieldType = 'text' | 'password' | 'url' | 'select' | 'textarea'
@@ -129,7 +131,7 @@ interface AppSettings {
   chatProvider: {
     manifestUrl: string
     installed: InstalledProviderInfo | null
-    config: Record<string, any>
+    config: Record<string, string>
   }
   defaultCaptureStrategy: CaptureStrategy
   capture: Partial<Record<AppType, PerAppCapture>>
@@ -177,19 +179,19 @@ const BUILTIN_PROVIDER_CATALOG: ProviderCatalogItem[] = [
   }
 ]
 
-const PlayIcon = () => (
+const PlayIcon = (): React.JSX.Element => (
   <svg viewBox="0 0 24 24" fill="currentColor">
     <path d="M8 5.14v14l11-7-11-7z" />
   </svg>
 )
 
-const StopIcon = () => (
+const StopIcon = (): React.JSX.Element => (
   <svg viewBox="0 0 24 24" fill="currentColor">
     <rect x="6" y="6" width="12" height="12" rx="2" />
   </svg>
 )
 
-const GearIcon = () => (
+const GearIcon = (): React.JSX.Element => (
   <svg
     viewBox="0 0 24 24"
     fill="none"
@@ -219,7 +221,7 @@ const RefreshIcon = (): React.JSX.Element => (
   </svg>
 )
 
-function App() {
+function App(): React.JSX.Element {
   const isSettingsWindow = new URLSearchParams(window.location.search).get('window') === 'settings'
   const [status, setStatus] = useState<EngineStatus>('idle')
 
@@ -264,7 +266,7 @@ function ControlPanel({
 }: {
   status: EngineStatus
   setStatus: (s: EngineStatus) => void
-}) {
+}): React.JSX.Element {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const logRef = useRef<HTMLDivElement>(null)
 
@@ -281,9 +283,7 @@ function ControlPanel({
   // 初次加载：读出当前 appType + 对应的框选区域
   useEffect(() => {
     void (async () => {
-      const settings = (await window.electron?.invoke('settings:getAll')) as
-        | AppSettings
-        | undefined
+      const settings = (await window.electron?.invoke('settings:getAll')) as AppSettings | undefined
       const initial = settings?.appType || 'wechat'
       setAppType(initial)
       await reloadRegionsForApp(initial)
@@ -429,11 +429,7 @@ function TargetAppQuickCard({
   onAppTypeChange,
   onOpenWizard
 }: TargetAppQuickCardProps): React.JSX.Element {
-  const statusText = isVlm
-    ? '自动识别（VLM）'
-    : regions
-      ? '已框选 3 / 3 个区域'
-      : '尚未框选'
+  const statusText = isVlm ? '自动识别（VLM）' : regions ? '已框选 3 / 3 个区域' : '尚未框选'
 
   return (
     <div className="card" style={{ marginBottom: 12 }}>
@@ -530,7 +526,7 @@ function BottomBar({
 }: {
   status: EngineStatus
   setStatus: (s: EngineStatus) => void
-}) {
+}): React.JSX.Element {
   const handleStart = useCallback(async () => {
     const settings = (await window.electron?.invoke('settings:getAll')) as AppSettings | undefined
     if (!settings?.vision?.apiKey) {
@@ -626,12 +622,12 @@ function SettingsWindow(): React.JSX.Element {
   )
 }
 
-function SettingsPanel() {
+function SettingsPanel(): React.JSX.Element {
   const [visionApiKey, setVisionApiKey] = useState('')
   const [testing, setTesting] = useState(false)
 
   useEffect(() => {
-    const load = async () => {
+    const load = async (): Promise<void> => {
       const settings = (await window.electron?.invoke('settings:getAll')) as AppSettings | undefined
       if (settings) {
         setVisionApiKey(settings.vision?.apiKey || '')
@@ -666,8 +662,9 @@ function SettingsPanel() {
       } else {
         showToast(`${t('settings.testConnection.fail')}: ${result?.error || ''}`, 'error')
       }
-    } catch (e: any) {
-      showToast(`${t('settings.testConnection.fail')}: ${e.message}`, 'error')
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : String(e)
+      showToast(`${t('settings.testConnection.fail')}: ${message}`, 'error')
     } finally {
       setTesting(false)
     }
@@ -700,7 +697,7 @@ function SettingsPanel() {
 
         <div className="form-group">
           <label className="form-label">{t('settings.visionModel')}</label>
-          <input className="form-input" value="doubao-seed-2-0-lite-260215" disabled />
+          <input className="form-input" value="doubao-seed-2-0-lite-260428" disabled />
         </div>
 
         <div className="form-group">
@@ -741,7 +738,9 @@ function AgentPanel(): React.JSX.Element {
     try {
       const [settings, result] = await Promise.all([
         window.electron?.invoke('settings:getAll') as Promise<AppSettings | undefined>,
-        window.electron?.invoke(forceUpdate ? 'providerHub:update' : 'providerHub:getCatalog') as Promise<ProviderHubResult>
+        window.electron?.invoke(
+          forceUpdate ? 'providerHub:update' : 'providerHub:getCatalog'
+        ) as Promise<ProviderHubResult>
       ])
 
       const nextCatalog = mergeProviderCatalog(result?.catalog?.providers || [])
@@ -749,7 +748,10 @@ function AgentPanel(): React.JSX.Element {
       setCatalog(nextCatalog)
       setCurrentSettings(settings || null)
       setActiveId(nextActiveId)
-      setSelectedId((current) => current || nextActiveId || BUILTIN_PROVIDER_CATALOG[0]?.id || nextCatalog[0]?.id || '')
+      setSelectedId(
+        (current) =>
+          current || nextActiveId || BUILTIN_PROVIDER_CATALOG[0]?.id || nextCatalog[0]?.id || ''
+      )
       setProviderDrafts((prev) => ({
         ...prev,
         doubao: {
@@ -824,7 +826,10 @@ function AgentPanel(): React.JSX.Element {
         return true
       }
 
-      const installResult = await window.electron?.invoke('provider:installFromUrl', provider.manifestUrl)
+      const installResult = await window.electron?.invoke(
+        'provider:installFromUrl',
+        provider.manifestUrl
+      )
       if (!installResult?.success) {
         showToast(installResult?.error || '智能体安装失败', 'error')
         return false
@@ -1060,23 +1065,35 @@ function getMissingRequiredFields(
 
 let _showToast: ((msg: string, type: 'success' | 'error') => void) | null = null
 
-function showToast(msg: string, type: 'success' | 'error') {
+function showToast(msg: string, type: 'success' | 'error'): void {
   _showToast?.(msg, type)
 }
 
-function Toast() {
+function Toast(): React.JSX.Element {
   const [visible, setVisible] = useState(false)
   const [message, setMessage] = useState('')
   const [type, setType] = useState<'success' | 'error'>('success')
   const timerRef = useRef<number | undefined>(undefined)
 
-  _showToast = useCallback((msg: string, t: 'success' | 'error') => {
+  const show = useCallback((msg: string, t: 'success' | 'error') => {
     setMessage(msg)
     setType(t)
     setVisible(true)
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = window.setTimeout(() => setVisible(false), 2500)
   }, [])
+
+  useEffect(() => {
+    _showToast = show
+    return () => {
+      if (_showToast === show) {
+        _showToast = null
+      }
+      if (timerRef.current) {
+        clearTimeout(timerRef.current)
+      }
+    }
+  }, [show])
 
   return <div className={`toast ${type} ${visible ? 'show' : ''}`}>{message}</div>
 }

@@ -5,6 +5,7 @@
 // 检测微信/企微布局（聊天入口、联系人列表、输入框等）
 
 import { AIClient } from '../ai-client'
+import { getErrorMessage } from '../error-utils'
 import { AppType, ScreenRect } from './types'
 import { captureWechatWindow } from './screenshot-utils'
 import { getWindowInfo, getWindowInfoSync } from './window-utils'
@@ -303,9 +304,9 @@ export async function detectUnreadArea(
     })
 
     return { success: true, chatEntranceArea, firstContact: firstContact || undefined }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[VisionUtils] 检测失败:', error)
-    return { success: false, error: error?.message || String(error) }
+    return { success: false, error: getErrorMessage(error) }
   }
 }
 
@@ -324,7 +325,10 @@ export async function getUnreadArea(
   // 有完整 VLM bbox 缓存直接返回。box-select 写入的 rect-only 区域不能用于红点 bbox 检测。
   if (cache?.chatEntranceArea?.bbox && cache?.firstContact?.bbox) {
     return {
-      chatEntranceArea: { bbox: cache.chatEntranceArea.bbox, coordinates: cache.chatEntranceArea.coordinates },
+      chatEntranceArea: {
+        bbox: cache.chatEntranceArea.bbox,
+        coordinates: cache.chatEntranceArea.coordinates
+      },
       firstContact: { bbox: cache.firstContact.bbox, coordinates: cache.firstContact.coordinates }
     }
   }
@@ -380,7 +384,7 @@ export function getInputAreaFromCache(appType: AppType): LayoutAreaItem | null {
     return null
   }
 
-  const [x1, _y1, x2, y2] = cache.chatMainArea.bbox
+  const [x1, , x2, y2] = cache.chatMainArea.bbox
   const inputBbox: BBox = [x1, y2, x2, 1000] // chatMainArea 底边 → 窗口底边
 
   // 需要窗口信息来转换坐标
@@ -527,8 +531,8 @@ export async function detectWechatLayout(
     })
 
     return { success: true, searchInputBox, headerArea, chatMainArea }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[VisionUtils] 布局检测失败:', error)
-    return { success: false, error: error?.message || String(error) }
+    return { success: false, error: getErrorMessage(error) }
   }
 }
