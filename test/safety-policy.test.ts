@@ -6,6 +6,7 @@ import {
   extractSkillToken,
   isAllowedSkillHost,
   isCustomProviderExecutionAllowed,
+  resolveProviderEntryUrl,
   sha256
 } from '../src/main/security-policy'
 
@@ -45,5 +46,32 @@ test('provider entry integrity blocks missing or changed bundles', (): void => {
   throws(
     () => assertProviderEntryIntegrity({ entrySha256: sha256(entryContent) }, `${entryContent}!`),
     /摘要不匹配/
+  )
+})
+
+test('provider entry URL must keep the manifest protocol boundary', (): void => {
+  equal(
+    resolveProviderEntryUrl('https://providers.example.com/acme/manifest.json', './entry.js'),
+    'https://providers.example.com/acme/entry.js'
+  )
+  equal(
+    resolveProviderEntryUrl('file:///tmp/sightflow-provider/manifest.json', './entry.js'),
+    'file:///tmp/sightflow-provider/entry.js'
+  )
+  throws(
+    () =>
+      resolveProviderEntryUrl(
+        'https://providers.example.com/acme/manifest.json',
+        'file:///tmp/evil.js'
+      ),
+    /必须使用相同协议/
+  )
+  throws(
+    () =>
+      resolveProviderEntryUrl(
+        'file:///tmp/sightflow-provider/manifest.json',
+        'https://example.com/entry.js'
+      ),
+    /必须使用相同协议/
   )
 })

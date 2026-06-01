@@ -8,6 +8,7 @@ import {
   CUSTOM_PROVIDER_EXECUTION_ENV,
   assertProviderEntryIntegrity,
   isCustomProviderExecutionAllowed,
+  resolveProviderEntryUrl,
   sha256
 } from './security-policy'
 
@@ -257,7 +258,7 @@ export async function installProviderFromUrl(manifestUrl: string): Promise<Provi
 
   const manifestContent = await readUrlText(normalizedUrl)
   const manifest = validateManifest(JSON.parse(manifestContent))
-  const entryUrl = new URL(manifest.entry, normalizedUrl).toString()
+  const entryUrl = resolveProviderEntryUrl(normalizedUrl, manifest.entry)
   const entryContent = await readUrlText(entryUrl)
   const entrySha256 = sha256(entryContent)
   const installDir = getProviderInstallDir(manifest.id, manifest.version)

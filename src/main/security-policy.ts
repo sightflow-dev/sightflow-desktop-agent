@@ -40,6 +40,21 @@ export function sha256(content: string): string {
   return createHash('sha256').update(content, 'utf8').digest('hex')
 }
 
+export function resolveProviderEntryUrl(manifestUrl: string, entry: string): string {
+  const manifest = new URL(manifestUrl)
+  const entryUrl = new URL(entry, manifest)
+
+  if (manifest.protocol !== 'https:' && manifest.protocol !== 'file:') {
+    throw new Error(`不支持的 provider manifest 协议: ${manifest.protocol}`)
+  }
+
+  if (entryUrl.protocol !== manifest.protocol) {
+    throw new Error('Provider manifest 与入口文件必须使用相同协议')
+  }
+
+  return entryUrl.toString()
+}
+
 export function assertProviderEntryIntegrity(
   installed: ProviderIntegrityInfo,
   entryContent: string
