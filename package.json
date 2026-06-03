@@ -16,6 +16,7 @@
     "dev:test-screenshot": "electron-vite build && cross-env TEST_MODE=screenshot electron ./out/main/test-cli.js",
     "dev:test-reply": "electron-vite build && cross-env TEST_MODE=reply electron ./out/main/test-cli.js",
     "dev:test-switch": "electron-vite build && cross-env TEST_MODE=switch electron ./out/main/test-cli.js",
+    "test:session": "ts-node --transpile-only scripts/test-generic-channel-session.ts",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "patch-package && electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
@@ -61,5 +62,10 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vite": "^7.2.6"
+  },
+  "overrides": {
+    "@hurdlegroup/robotjs": {
+      "node-addon-api": "^8.8.0"
+    }
   }
 }
