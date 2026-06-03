@@ -1,5 +1,7 @@
 import { AppType } from './rpa/types'
 
+export type ReplyMode = 'draft' | 'auto-send'
+
 export interface ProviderInput {
   screenshot: string
   appType: AppType
@@ -31,13 +33,14 @@ export interface RuntimeHostControls {
   enqueue(event: SessionEvent): void
   schedule(event: SessionEvent, delayMs: number): void
   runProvider(input: ProviderInput): AsyncIterable<ProviderEvent>
-  log(type: 'thinking' | 'reply' | 'skip' | 'error', content: string): void
+  log(type: 'thinking' | 'reply' | 'draft' | 'skip' | 'error', content: string): void
   isRunning(): boolean
   stopSession(reason?: string): Promise<void>
 }
 
 export interface ChannelContext<TState> {
   appType: AppType
+  replyMode: ReplyMode
   state: TState
   host: RuntimeHostControls
 }
