@@ -42,9 +42,12 @@ interface PerAppCapture {
   regions: BoxRegions | null
 }
 
+type ReplyMode = 'draft' | 'auto-send'
+
 interface AppSettings {
   locale: 'zh' | 'en'
   appType: AppType
+  replyMode: ReplyMode
   vision: {
     apiKey: string
   }
@@ -115,6 +118,7 @@ const settingsStore = new StoreClass({
   defaults: {
     locale: 'zh',
     appType: 'wechat',
+    replyMode: 'draft',
     vision: { apiKey: '' },
     chatProvider: {
       manifestUrl: '',
@@ -937,6 +941,7 @@ function normalizeSettings(raw: any): AppSettings {
   return {
     locale: raw?.locale === 'en' ? 'en' : 'zh',
     appType: coerceAppType(raw?.appType),
+    replyMode: raw?.replyMode === 'auto-send' ? 'auto-send' : 'draft',
     vision: {
       apiKey: raw?.vision?.apiKey || oldApiKey || ''
     },

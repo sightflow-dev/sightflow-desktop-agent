@@ -69,6 +69,10 @@ export class MockDevice implements DesktopDevice {
     console.log(`[MockDevice] Sent: ${text}`)
   }
 
+  async fillDraft(text: string): Promise<void> {
+    console.log(`[MockDevice] Drafted: ${text}`)
+  }
+
   async activeUnreadByClick(coordinates: [number, number]): Promise<void> {
     console.log(`[MockDevice] activeUnreadByClick: (${coordinates[0]}, ${coordinates[1]})`)
   }

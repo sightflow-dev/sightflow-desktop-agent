@@ -12,6 +12,7 @@ interface LogEntry {
 type EngineStatus = 'idle' | 'running' | 'error'
 type SettingsSection = 'base' | 'agent'
 type AppType = 'wechat' | 'wework' | 'dingtalk' | 'lark' | 'slack' | 'telegram' | 'generic'
+type ReplyMode = 'draft' | 'auto-send'
 
 type CaptureStrategy = 'auto' | 'vlm' | 'box-select'
 
@@ -123,6 +124,7 @@ interface PerAppCapture {
 interface AppSettings {
   locale: 'zh' | 'en'
   appType: AppType
+  replyMode: ReplyMode
   vision: {
     apiKey: string
   }

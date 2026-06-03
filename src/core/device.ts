@@ -80,6 +80,9 @@ export interface DesktopDevice {
 
   // ── 动作层 ──
 
+  /** 填入草稿（clipboard paste，不发送） */
+  fillDraft(text: string): Promise<void>
+
   /** 发送消息（clipboard paste + enter） */
   sendMessage(text: string): Promise<void>
 
