@@ -3,6 +3,8 @@
 
 Official website： [https://sightflow.dev](https://sightflow.dev/)
 
+[![Anurag's GitHub stats](https://github-readme-stats.vercel.app/api?username=foxeet)](https://github.com/anuraghazra/github-readme-stats)
+
 
 # 招募共建开发者
 我们相信Agent Computer Use 会是未来10年重要AI革命的基建，如果你也希望参与到这个项目迭代，欢迎联系\
