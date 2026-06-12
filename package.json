@@ -5,6 +5,11 @@
   "main": "./out/main/index.js",
   "author": "sightflow-dev",
   "homepage": "https://github.com/sightflow-dev/sightflow-desktop-agent",
+  "overrides": {
+    "@hurdlegroup/robotjs": {
+      "node-addon-api": "^8.7.0"
+    }
+  },
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint --cache .",
