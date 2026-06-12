@@ -1,5 +1,6 @@
-import { app, shell, BrowserWindow, ipcMain, desktopCapturer } from 'electron'
+import { app, shell, BrowserWindow, ipcMain, desktopCapturer, nativeImage } from 'electron'
 import { join } from 'path'
+import { writeFileSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { checkAndRequestPermissions } from './permission'
@@ -479,6 +480,19 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:open', async () => {
     createSettingsWindow()
     return { success: true }
+  })
+
+  ipcMain.handle('capture:screenshot', async (_event, savePath) => {
+    const win = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
+    if (!win) return { success: false, error: 'no window' }
+    try {
+      const image = await win.webContents.capturePage()
+      const targetPath = savePath || join(app.getPath('desktop'), 'sightflow-screenshot.png')
+      writeFileSync(targetPath, image.toPNG())
+      return { success: true, path: targetPath }
+    } catch (err: any) {
+      return { success: false, error: err.message }
+    }
   })
 
   // ── Runtime / Session IPC（沿用 legacy engine:* 通道名） ──

@@ -1,0 +1,31 @@
+{
+  "apiVersion": 1,
+  "id": "opencode-go-kimi",
+  "name": "OpenCode Go (Kimi K2.5)",
+  "version": "1.0.0",
+  "entry": "provider.bundle.js",
+  "moduleType": "module",
+  "capabilities": ["chat"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "apiKey": {
+        "type": "password",
+        "title": "OpenCode Go API Key",
+        "default": ""
+      },
+      "model": {
+        "type": "select",
+        "title": "模型",
+        "default": "kimi-k2.5",
+        "enum": ["kimi-k2.5", "kimi-k2.6", "glm-5", "glm-5.1"]
+      },
+      "systemPrompt": {
+        "type": "string",
+        "title": "系统提示词",
+        "default": ""
+      }
+    },
+    "required": ["apiKey"]
+  }
+}

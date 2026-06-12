@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ProviderAdapter, ProviderEvent, ProviderInput } from '../core/session-types'
 
 export const BUILTIN_DOUBAO_PROVIDER_ID = 'volcengine-ark'
+export const BUILTIN_MINIMAX_PROVIDER_ID = 'minimax'
 
 /**
  * 内置 doubao（火山方舟）provider 的资源目录。
