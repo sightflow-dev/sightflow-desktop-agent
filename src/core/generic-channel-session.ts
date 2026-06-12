@@ -48,40 +48,80 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
     switch (event.type) {
       case 'bootstrap': {
         ctx.host.log('thinking', '正在识别聊天窗口布局...')
+        const measureStart = Date.now()
         const result = await this.device.measureLayout()
 
         if (!result.success) {
           ctx.host.log('error', `${result.error || '界面识别失败'}，引擎无法启动`)
+          ctx.host.trace({
+            phase: 'observe',
+            summary: '识别聊天窗口布局',
+            action: { kind: 'measure' },
+            outcome: {
+              status: 'fail',
+              detail: result.error || '界面识别失败',
+              latencyMs: Date.now() - measureStart
+            }
+          })
           await ctx.host.stopSession('bootstrap_failed')
           return
         }
 
         ctx.state.measuredAt = Date.now()
         ctx.host.log('thinking', '聊天窗口识别完成')
+        ctx.host.trace({
+          phase: 'observe',
+          summary: '识别聊天窗口布局',
+          action: { kind: 'measure' },
+          outcome: { status: 'ok', latencyMs: Date.now() - measureStart }
+        })
         ctx.host.enqueue({ type: 'observe_chat' })
         break
       }
 
       case 'observe_chat': {
         const screenshot = await this.device.screenshot()
+        ctx.host.trace({
+          phase: 'observe',
+          summary: '截取当前聊天窗口',
+          screenshotBase64: screenshot
+        })
         void this.forwardProviderEvents(screenshot, ctx)
         break
       }
 
       case 'provider.thinking':
         ctx.host.log('thinking', event.content)
+        ctx.host.trace({
+          phase: 'think',
+          summary: event.content,
+          reasoning: { content: event.content }
+        })
         break
 
-      case 'provider.reply_text':
+      case 'provider.reply_text': {
+        const sendStart = Date.now()
         await this.device.sendMessage(event.content)
         ctx.host.log('reply', event.content)
+        ctx.host.trace({
+          phase: 'act',
+          summary: '发送回复',
+          action: { kind: 'send', payload: event.content },
+          outcome: { status: 'ok', latencyMs: Date.now() - sendStart }
+        })
         await this.device.setChatBaseline()
         ctx.state.latestChatBaseline = Date.now()
         ctx.host.enqueue({ type: 'check_unread' })
         break
+      }
 
       case 'provider.skip':
         ctx.host.log('skip', '本轮无需回复')
+        ctx.host.trace({
+          phase: 'think',
+          summary: '判断本轮无需回复',
+          outcome: { status: 'skip' }
+        })
         await this.device.setChatBaseline()
         ctx.state.latestChatBaseline = Date.now()
         ctx.host.enqueue({ type: 'check_unread' })
@@ -89,6 +129,11 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
 
       case 'provider.error':
         ctx.host.log('error', `回复服务异常：${event.error}`)
+        ctx.host.trace({
+          phase: 'think',
+          summary: '回复服务异常',
+          outcome: { status: 'fail', detail: event.error }
+        })
         ctx.host.enqueue({
           type: 'wait_retry',
           reason: 'provider_error',
@@ -100,6 +145,11 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         const diffResult = await this.device.hasChatAreaChanged()
         if (diffResult.hasDiff) {
           ctx.host.log('thinking', '检测到当前对话有新消息')
+          ctx.host.trace({
+            phase: 'verify',
+            summary: '检测到当前对话有新消息',
+            outcome: { status: 'ok' }
+          })
           ctx.host.enqueue({ type: 'observe_chat' })
           break
         }
@@ -126,6 +176,12 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         }
 
         ctx.host.log('thinking', '检测到未读消息，正在尝试打开会话')
+        ctx.host.trace({
+          phase: 'act',
+          summary: '点击未读会话入口',
+          action: { kind: 'click', target: chatEntranceCoords },
+          outcome: { status: 'ok' }
+        })
         await this.device.activeUnreadByClick(chatEntranceCoords)
         await this.sleep(150 + Math.random() * 100)
 
@@ -267,6 +323,12 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
     }
 
     ctx.host.log('thinking', '正在打开未读会话')
+    ctx.host.trace({
+      phase: 'act',
+      summary: '打开未读会话',
+      action: { kind: 'click', target: contactResult.firstContactCoords },
+      outcome: { status: 'ok' }
+    })
     await this.device.clickUnreadContact(contactResult.firstContactCoords)
     await this.sleep(500 + Math.random() * 300)
     this.device.clearChatBaseline()

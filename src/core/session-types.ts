@@ -1,10 +1,13 @@
 import { AppType } from './rpa/types'
+import { MemoryCardBrief, TraceStepInput } from './trace/trace-types'
 
 export interface ProviderInput {
   screenshot: string
   appType: AppType
   currentContact?: string
   ocrText?: string
+  /** 运行时注入的经验卡片（工作记忆）。Provider 可拼入 system prompt。 */
+  memoryCards?: MemoryCardBrief[]
 }
 
 export type ProviderEvent =
@@ -32,6 +35,8 @@ export interface RuntimeHostControls {
   schedule(event: SessionEvent, delayMs: number): void
   runProvider(input: ProviderInput): AsyncIterable<ProviderEvent>
   log(type: 'thinking' | 'reply' | 'skip' | 'error', content: string): void
+  /** 记录一条结构化工作轨迹（work-trace）。无 recorder 时为 no-op。 */
+  trace(step: TraceStepInput): void
   isRunning(): boolean
   stopSession(reason?: string): Promise<void>
 }

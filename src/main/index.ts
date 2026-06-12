@@ -32,6 +32,15 @@ import {
   startSkillServer,
   stopSkillServer
 } from './skill-server'
+import {
+  listTraceSessions,
+  readTraceScreenshot,
+  readTraceSession,
+  TraceRecorder
+} from '../core/trace/trace-recorder'
+import { TraceStepInput } from '../core/trace/trace-types'
+import { ExperienceStore, NewExperienceCard } from '../core/memory/experience-store'
+import { induceCardsFromSession } from '../core/memory/learn-from-session'
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 
 const FIXED_ARK_MODEL = 'doubao-seed-2-0-lite-260215'
@@ -129,6 +138,29 @@ const settingsStore = new StoreClass({
 let runtime: RuntimeHost<ReturnType<typeof createInitialGenericChannelState>> | null = null
 let runtimeDevice: DesktopDevice | null = null
 let settingsWindow: BrowserWindow | null = null
+let memoryWindow: BrowserWindow | null = null
+
+// ── 工作记忆（work-trace + 经验卡片）单例，首次使用时初始化 ──
+let traceRecorderInstance: TraceRecorder | null = null
+let experienceStoreInstance: ExperienceStore | null = null
+
+function worktraceBaseDir(): string {
+  return join(app.getPath('userData'), 'worktrace')
+}
+
+function getTraceRecorder(): TraceRecorder {
+  if (!traceRecorderInstance) {
+    traceRecorderInstance = new TraceRecorder(worktraceBaseDir())
+  }
+  return traceRecorderInstance
+}
+
+function getExperienceStore(): ExperienceStore {
+  if (!experienceStoreInstance) {
+    experienceStoreInstance = new ExperienceStore(join(worktraceBaseDir(), 'memory', 'cards.json'))
+  }
+  return experienceStoreInstance
+}
 
 function createWindow(): void {
   // Create the browser window.
@@ -209,6 +241,52 @@ function createSettingsWindow(): void {
   } else {
     settingsWindow.loadFile(join(__dirname, '../renderer/index.html'), {
       query: { window: 'settings' }
+    })
+  }
+}
+
+function createMemoryWindow(): void {
+  if (memoryWindow && !memoryWindow.isDestroyed()) {
+    memoryWindow.show()
+    memoryWindow.focus()
+    return
+  }
+
+  memoryWindow = new BrowserWindow({
+    width: 1180,
+    height: 780,
+    minWidth: 980,
+    minHeight: 640,
+    show: false,
+    autoHideMenuBar: true,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 14 },
+    backgroundColor: '#0a0b10',
+    ...(process.platform === 'linux' ? { icon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false
+    }
+  })
+
+  memoryWindow.on('ready-to-show', () => {
+    memoryWindow?.show()
+  })
+
+  memoryWindow.on('closed', () => {
+    memoryWindow = null
+  })
+
+  memoryWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    memoryWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}?window=memory`)
+  } else {
+    memoryWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      query: { window: 'memory' }
     })
   }
 }
@@ -481,6 +559,96 @@ app.whenReady().then(async () => {
     return { success: true }
   })
 
+  // ── 工作记忆：轨迹查询 / 回放 ──
+  ipcMain.handle('memory:open', async () => {
+    createMemoryWindow()
+    return { success: true }
+  })
+
+  ipcMain.handle('trace:listSessions', async () => {
+    return listTraceSessions(worktraceBaseDir())
+  })
+
+  ipcMain.handle('trace:getSession', async (_event, sessionId: string) => {
+    if (typeof sessionId !== 'string' || !sessionId) return null
+    return readTraceSession(worktraceBaseDir(), sessionId)
+  })
+
+  ipcMain.handle(
+    'trace:getScreenshot',
+    async (_event, sessionId: string, screenshotPath: string) => {
+      if (typeof sessionId !== 'string' || typeof screenshotPath !== 'string') return null
+      return readTraceScreenshot(worktraceBaseDir(), sessionId, screenshotPath)
+    }
+  )
+
+  // ── 工作记忆：经验卡片 ──
+  ipcMain.handle('memory:listCards', async () => {
+    return getExperienceStore().listCards()
+  })
+
+  ipcMain.handle('memory:learnFromSession', async (_event, sessionId: string) => {
+    try {
+      const apiKey = normalizeSettings(settingsStore.store).vision.apiKey
+      if (!apiKey) {
+        return { success: false, error: '请先在设置中填写视觉接口密钥' }
+      }
+      const data = await readTraceSession(worktraceBaseDir(), sessionId)
+      if (!data || data.steps.length === 0) {
+        return { success: false, error: '该轨迹暂无可学习的步骤' }
+      }
+
+      const client = new AIClient({
+        apiKey,
+        model: FIXED_ARK_MODEL,
+        baseURL: FIXED_ARK_BASE_URL
+      })
+      const induced = await induceCardsFromSession(client, data.session, data.steps)
+      if (induced.length === 0) {
+        return { success: true, cards: [] }
+      }
+
+      const cards = getExperienceStore().addCards(
+        induced.map((item) => ({
+          scenario: item.scenario,
+          guidance: item.guidance,
+          rationale: item.rationale,
+          source: 'agent_summary' as const,
+          evidence: { sessionId, stepIds: item.stepIds }
+        }))
+      )
+      return { success: true, cards }
+    } catch (error: any) {
+      return { success: false, error: error?.message || String(error) }
+    }
+  })
+
+  ipcMain.handle('memory:addCard', async (_event, input: NewExperienceCard) => {
+    if (!input?.scenario?.trim() || !input?.guidance?.trim()) {
+      return { success: false, error: '场景和做法不能为空' }
+    }
+    const source: NewExperienceCard['source'] =
+      input.source === 'human_takeover' || input.source === 'manual' ? input.source : 'manual'
+    const cards = getExperienceStore().addCards([
+      {
+        scenario: input.scenario,
+        guidance: input.guidance,
+        rationale: input.rationale,
+        source,
+        evidence: input.evidence
+      }
+    ])
+    return { success: true, cards }
+  })
+
+  ipcMain.handle('memory:deleteCard', async (_event, cardId: string) => {
+    return { success: getExperienceStore().deleteCard(cardId) }
+  })
+
+  ipcMain.handle('memory:setCardEnabled', async (_event, cardId: string, enabled: boolean) => {
+    return { success: getExperienceStore().setEnabled(cardId, enabled === true) }
+  })
+
   // ── Runtime / Session IPC（沿用 legacy engine:* 通道名） ──
   ipcMain.handle('engine:start', async (_event, config) => {
     const result = await startEngineCore(config)
@@ -703,13 +871,43 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
     log('thinking', `已选用抓取策略：${strategy}`)
     runtimeDevice = device
 
+    // ── 工作记忆：本次执行的所有步骤落成 work-trace 会话 ──
+    const recorder = getTraceRecorder()
+    recorder.startSession({
+      appType,
+      engineVersion: app.getVersion(),
+      providerId: settings.chatProvider.installed?.id ?? BUILTIN_DOUBAO_PROVIDER_ID,
+      model: settings.chatProvider.config?.model || FIXED_ARK_MODEL
+    })
+
+    const onTrace = (input: TraceStepInput): void => {
+      const step = recorder.record(input)
+      if (!step) return
+
+      // 继承闭环：带经验引用的回复成功发送 → 卡片 used/success 计数
+      const refs = step.reasoning?.memoryRefs
+      if (step.phase === 'act' && step.action?.kind === 'send' && refs?.length) {
+        getExperienceStore().recordUsage(refs, step.outcome?.status === 'ok')
+      }
+
+      // 实时推给工作记忆窗口
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('trace:step', { sessionId: step.sessionId, step })
+        }
+      }
+    }
+
     const channel = new GenericChannelSession(device)
     runtime = new RuntimeHost({
       appType,
       channel,
       provider,
       initialState: createInitialGenericChannelState(),
-      onLog: log
+      onLog: log,
+      onTrace,
+      getMemoryCards: () => getExperienceStore().getActiveCardBriefs(),
+      onSessionEnd: () => recorder.endSession()
     })
 
     runtime.startSession().catch((err: any) => {

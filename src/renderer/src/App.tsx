@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { t } from './i18n'
 import logoUrl from './assets/logo.png'
+import MemoryWindow from './MemoryWindow'
 import './index.css'
 
 interface LogEntry {
@@ -203,6 +204,22 @@ const GearIcon = () => (
   </svg>
 )
 
+// 工作记忆 — 时钟+轨迹点图标
+const MemoryIcon = (): React.JSX.Element => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 12a9 9 0 1 0 3-6.7" />
+    <path d="M3 4v5h5" />
+    <path d="M12 7v5l3 3" />
+  </svg>
+)
+
 const RefreshIcon = (): React.JSX.Element => (
   <svg
     viewBox="0 0 24 24"
@@ -220,7 +237,7 @@ const RefreshIcon = (): React.JSX.Element => (
 )
 
 function App() {
-  const isSettingsWindow = new URLSearchParams(window.location.search).get('window') === 'settings'
+  const windowKind = new URLSearchParams(window.location.search).get('window')
   const [status, setStatus] = useState<EngineStatus>('idle')
 
   // Sync UI status with engine state changes triggered out-of-band
@@ -232,10 +249,19 @@ function App() {
     return cleanup
   }, [])
 
-  if (isSettingsWindow) {
+  if (windowKind === 'settings') {
     return (
       <div className="app settings-window">
         <SettingsWindow />
+        <Toast />
+      </div>
+    )
+  }
+
+  if (windowKind === 'memory') {
+    return (
+      <div className="app settings-window">
+        <MemoryWindow />
         <Toast />
       </div>
     )
@@ -584,6 +610,13 @@ function BottomBar({
           {t('control.start')}
         </button>
       )}
+      <button
+        className="bottom-btn bottom-btn-settings"
+        onClick={() => window.electron?.invoke('memory:open')}
+        title="工作记忆"
+      >
+        <MemoryIcon />
+      </button>
       <button
         className="bottom-btn bottom-btn-settings"
         onClick={() => window.electron?.invoke('settings:open')}
@@ -1060,7 +1093,7 @@ function getMissingRequiredFields(
 
 let _showToast: ((msg: string, type: 'success' | 'error') => void) | null = null
 
-function showToast(msg: string, type: 'success' | 'error') {
+export function showToast(msg: string, type: 'success' | 'error') {
   _showToast?.(msg, type)
 }
 

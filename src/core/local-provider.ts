@@ -25,7 +25,7 @@ export class LocalProvider implements ProviderAdapter {
     yield { type: 'thinking', content: '正在分析聊天内容...' }
 
     try {
-      const reply = await this.aiClient.getReply(input.screenshot)
+      const reply = await this.aiClient.getReply(input.screenshot, input.memoryCards)
 
       if (!reply) {
         yield { type: 'skip' }

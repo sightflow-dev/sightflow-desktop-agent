@@ -887,3 +887,428 @@ textarea.form-input {
 .slide-up {
   animation: slideUp 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* ─── Work Memory（工作记忆窗口） ─── */
+.memory-shell {
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+  height: 100vh;
+  background: var(--bg-primary);
+}
+
+.memory-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 40px 12px 16px;
+  border-right: 1px solid var(--glass-border);
+  background: var(--bg-frosted);
+  -webkit-app-region: drag;
+}
+
+.memory-sidebar button {
+  -webkit-app-region: no-drag;
+}
+
+.memory-session-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--glass-border);
+}
+
+.memory-session-item {
+  width: 100%;
+  padding: 9px 10px;
+  margin-bottom: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.memory-session-item:hover {
+  background: var(--bg-glass-heavy);
+  color: var(--text-primary);
+}
+
+.memory-session-item.selected {
+  border-color: rgba(16, 185, 129, 0.18);
+  background: var(--accent-subtle);
+  color: var(--text-primary);
+}
+
+.memory-session-time {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.memory-session-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.memory-live-dot {
+  color: var(--accent);
+}
+
+.memory-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 34px 20px 16px;
+}
+
+.memory-empty {
+  padding: 18px 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+.memory-empty-main {
+  margin: auto;
+  max-width: 360px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.memory-trace-view,
+.memory-cards-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.memory-trace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+}
+
+.memory-trace-header h1 {
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.memory-trace-header p {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.memory-trace-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr);
+  gap: 14px;
+}
+
+.memory-timeline {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.trace-step-card {
+  display: block;
+  width: 100%;
+  padding: 11px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.trace-step-card:hover {
+  border-color: var(--glass-border-light);
+  background: var(--bg-glass-heavy);
+}
+
+.trace-step-card.selected {
+  border-color: rgba(16, 185, 129, 0.34);
+  background: var(--accent-subtle);
+}
+
+.trace-step-top {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.trace-step-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.trace-step-summary {
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.trace-step-payload {
+  margin-top: 5px;
+  padding: 7px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-glass-input);
+  border: 1px solid var(--glass-border);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.trace-step-thumb {
+  display: block;
+  margin-top: 7px;
+  width: 100%;
+  max-height: 110px;
+  object-fit: cover;
+  object-position: top;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+}
+
+.phase-badge {
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.phase-observe { background: rgba(96, 165, 250, 0.12); color: #60a5fa; }
+.phase-think { background: rgba(192, 132, 252, 0.12); color: #c084fc; }
+.phase-act { background: var(--accent-subtle); color: var(--accent); }
+.phase-verify { background: rgba(251, 191, 36, 0.12); color: var(--warning); }
+
+.actor-badge {
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: rgba(251, 191, 36, 0.14);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.memory-ref-badge {
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--accent-subtle);
+  color: var(--accent-hover);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.outcome-badge {
+  margin-left: auto;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.outcome-ok { background: var(--success-bg); color: var(--success); }
+.outcome-fail { background: var(--error-bg); color: var(--error); }
+.outcome-skip { background: var(--bg-glass-heavy); color: var(--text-secondary); }
+
+.memory-detail {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.step-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.replay-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.replay-play-btn {
+  white-space: nowrap;
+}
+
+.replay-slider {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.replay-progress {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.step-detail-screenshot {
+  width: 100%;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+}
+
+.screenshot-loading {
+  min-height: 80px;
+  background: var(--bg-glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  animation: pulse 1.4s ease infinite;
+}
+
+.step-detail-noscreen {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 22px 14px;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--glass-border-light);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.step-detail-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-glass);
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.step-detail-row {
+  display: flex;
+  gap: 10px;
+}
+
+.step-detail-label {
+  flex-shrink: 0;
+  width: 58px;
+  color: var(--text-muted);
+}
+
+.correction-form {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  background: rgba(251, 191, 36, 0.05);
+}
+
+/* ── 经验卡片 ── */
+.memory-cards-list {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.memory-card {
+  padding: 13px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background: var(--bg-glass);
+}
+
+.memory-card.disabled {
+  opacity: 0.45;
+}
+
+.memory-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.memory-card-stats {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.memory-card-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+
+.btn-text {
+  padding: 3px 8px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.btn-text:hover {
+  background: var(--bg-glass-heavy);
+  color: var(--text-primary);
+}
+
+.btn-text.danger:hover {
+  background: var(--error-bg);
+  color: var(--error);
+}
+
+.source-badge {
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-agent_summary { background: rgba(96, 165, 250, 0.12); color: #60a5fa; }
+.source-human_takeover { background: rgba(251, 191, 36, 0.14); color: var(--warning); }
+.source-manual { background: var(--bg-glass-heavy); color: var(--text-secondary); }
+
+.memory-card-scenario {
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 4px;
+}
+
+.memory-card-guidance {
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+.memory-card-rationale {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.55;
+}

@@ -33,14 +33,20 @@ export function createProvider(context) {
         return
       }
 
-      yield { type: 'thinking', content: '正在分析聊天内容...' }
+      const memorySection = buildMemorySection(input.memoryCards)
+      yield {
+        type: 'thinking',
+        content: memorySection
+          ? `正在分析聊天内容（已加载 ${input.memoryCards.length} 条团队经验）...`
+          : '正在分析聊天内容...'
+      }
 
       try {
         const reply = await requestReply({
           screenshot: input.screenshot,
           apiKey,
           model: providerConfig.model || DEFAULT_MODEL,
-          systemPrompt: providerConfig.systemPrompt || DEFAULT_PROMPT
+          systemPrompt: (providerConfig.systemPrompt || DEFAULT_PROMPT) + memorySection
         })
 
         if (!reply || reply.trim() === '[SKIP]') {
@@ -94,6 +100,18 @@ async function requestReply({ screenshot, apiKey, model, systemPrompt }) {
   return json && json.choices && json.choices[0] && json.choices[0].message
     ? json.choices[0].message.content || ''
     : ''
+}
+
+// 工作记忆注入：把运行时下发的经验卡片拼成 system prompt 附加段
+function buildMemorySection(memoryCards) {
+  if (!Array.isArray(memoryCards) || memoryCards.length === 0) {
+    return ''
+  }
+  const lines = memoryCards.map((card, index) => {
+    const rationale = card.rationale ? `（原因：${card.rationale}）` : ''
+    return `${index + 1}. 【${card.scenario}】${card.guidance}${rationale}`
+  })
+  return `\n\n## 团队经验（来自工作记忆，优先遵循）\n${lines.join('\n')}`
 }
 
 function normalizeImageUrl(screenshot) {

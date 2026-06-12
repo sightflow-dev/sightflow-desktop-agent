@@ -6,11 +6,23 @@
 //   1. 聊天回复：截图 → AI 分析 → 回复文字
 //   2. VLM 视觉检测：截图 → AI 分析 → bbox/point 坐标
 
+import { MemoryCardBrief } from './trace/trace-types'
+
 export interface AIClientConfig {
   apiKey: string
   model: string
   baseURL: string
   systemPrompt: string
+}
+
+/** 把经验卡片拼成 system prompt 附加段（与内置 provider bundle 的格式保持一致） */
+export function buildMemorySection(memoryCards?: MemoryCardBrief[]): string {
+  if (!memoryCards || memoryCards.length === 0) return ''
+  const lines = memoryCards.map((card, index) => {
+    const rationale = card.rationale ? `（原因：${card.rationale}）` : ''
+    return `${index + 1}. 【${card.scenario}】${card.guidance}${rationale}`
+  })
+  return `\n\n## 团队经验（来自工作记忆，优先遵循）\n${lines.join('\n')}`
 }
 
 const DEFAULT_MODEL = 'doubao-seed-2-0-lite-260215'
@@ -42,13 +54,14 @@ export class AIClient {
 
   /**
    * 发送截图给 AI，获取聊天回复
+   * memoryCards: 运行时注入的经验卡片（工作记忆），拼入 system prompt
    */
-  async getReply(screenshotBase64: string): Promise<string | null> {
+  async getReply(screenshotBase64: string, memoryCards?: MemoryCardBrief[]): Promise<string | null> {
     const startTime = Date.now()
     try {
       console.log('[AIClient] getReply 开始...')
       const replyText = await this.callVision(
-        this.config.systemPrompt,
+        this.config.systemPrompt + buildMemorySection(memoryCards),
         '请根据截图中微信聊天窗口的最新消息进行回复。',
         screenshotBase64
       )
