@@ -2,8 +2,6 @@
 
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/99a7cfec-eb22-4f65-8a76-a6974e46bcf0" alt="SightFlow" width="840" />
-
 <h1>SightFlow · 开源工作记忆引擎</h1>
 
 <p><strong>让 AI 进入真实软件世界 —— 看懂界面，完成任务，沉淀岗位经验。</strong></p>

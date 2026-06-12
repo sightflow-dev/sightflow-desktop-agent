@@ -2,8 +2,6 @@
 
 <div align="center">
 
-<img src="https://github.com/user-attachments/assets/99a7cfec-eb22-4f65-8a76-a6974e46bcf0" alt="SightFlow" width="840" />
-
 <h1>SightFlow · The Open-Source Working Memory Engine</h1>
 
 <p><strong>Bring AI into the real software world — read the screen, get the job done, and accumulate on-the-job experience.</strong></p>
