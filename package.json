@@ -4,6 +4,7 @@
   "description": "SightFlow Desktop Agent - AI-powered cross-platform desktop RPA client based on Electron and VLM",
   "main": "./out/main/index.js",
   "author": "sightflow-dev",
+  "license": "Apache-2.0",
   "homepage": "https://github.com/sightflow-dev/sightflow-desktop-agent",
   "scripts": {
     "format": "prettier --write .",

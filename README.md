@@ -1,4 +1,7 @@
 # SightFlow.dev
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 <img width="1201" height="495" alt="image" src="https://github.com/user-attachments/assets/99a7cfec-eb22-4f65-8a76-a6974e46bcf0" />
 
 Official website： [https://sightflow.dev](https://sightflow.dev/)
@@ -93,3 +96,11 @@ npm run build:mac
 ## 开发环境推荐配置
 
 - [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+
+## License
+
+本项目采用 [Apache License 2.0](LICENSE) 开源协议。
+
+SightFlow 的执行轨迹（work-trace）默认保存在本地，不会上传到任何服务器，也不会进入任何公共训练数据集。代码开源不代表用户数据开源——你的工作数据始终属于你。
+
+This project is licensed under the [Apache License 2.0](LICENSE). Work traces are stored locally by default — they are never uploaded to any server or included in any public training dataset. Open source code does not mean open data: your work data always belongs to you.
