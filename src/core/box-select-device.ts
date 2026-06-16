@@ -26,6 +26,7 @@ import {
   activeUnreadByClickAction,
   clickUnreadContactAction,
   defaultClickPolicy,
+  fillDraftByCoordsAction,
   sendReplyByCoordsAction
 } from './rpa/input-utils'
 import { comparePngBuffers } from './rpa/image-compare'
@@ -179,6 +180,14 @@ export class BoxSelectDevice implements DesktopDevice {
   }
 
   // ── 动作层 ──
+
+  async fillDraft(text: string): Promise<void> {
+    const inputArea = getInputAreaFromCache(this.appType)
+    if (!inputArea) throw new Error('尚未测量输入框区域')
+    const [x, y] = inputArea.coordinates
+    const ok = await fillDraftByCoordsAction(x, y, text)
+    if (!ok) throw new Error('写入草稿失败')
+  }
 
   async sendMessage(text: string): Promise<void> {
     const inputArea = getInputAreaFromCache(this.appType)

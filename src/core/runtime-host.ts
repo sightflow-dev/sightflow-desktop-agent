@@ -3,6 +3,7 @@ import {
   ChannelSession,
   ProviderAdapter,
   ProviderInput,
+  ReplyMode,
   RuntimeHostControls,
   SessionEvent
 } from './session-types'
@@ -10,10 +11,11 @@ import { AppType } from './rpa/types'
 
 interface RuntimeHostOptions<TState> {
   appType: AppType
+  replyMode: ReplyMode
   channel: ChannelSession<TState>
   provider: ProviderAdapter
   initialState: TState
-  onLog?: (type: 'thinking' | 'reply' | 'skip' | 'error', content: string) => void
+  onLog?: (type: 'thinking' | 'reply' | 'draft' | 'skip' | 'error', content: string) => void
 }
 
 export class RuntimeHost<TState> {
@@ -27,6 +29,7 @@ export class RuntimeHost<TState> {
   constructor(private readonly options: RuntimeHostOptions<TState>) {
     this.context = {
       appType: options.appType,
+      replyMode: options.replyMode,
       state: options.initialState,
       host: this.createControls()
     }
@@ -77,6 +80,10 @@ export class RuntimeHost<TState> {
     this.context.appType = appType
   }
 
+  updateReplyMode(replyMode: ReplyMode): void {
+    this.context.replyMode = replyMode
+  }
+
   private createControls(): RuntimeHostControls {
     return {
       enqueue: (event) => this.enqueue(event),
@@ -125,7 +132,7 @@ export class RuntimeHost<TState> {
     }
   }
 
-  private log(type: 'thinking' | 'reply' | 'skip' | 'error', content: string): void {
+  private log(type: 'thinking' | 'reply' | 'draft' | 'skip' | 'error', content: string): void {
     if (this.options.onLog) {
       this.options.onLog(type, content)
     } else {

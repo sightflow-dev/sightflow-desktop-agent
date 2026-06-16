@@ -9,7 +9,12 @@ import { AIClient } from './ai-client'
 import { AppType } from './rpa/types'
 import { BBox } from './rpa/vision-utils'
 import { captureChatMainArea } from './rpa/screenshot-utils'
-import { sendReplyAction, activeUnreadByClickAction, clickUnreadContactAction } from './rpa/input-utils'
+import {
+  fillDraftAction,
+  sendReplyAction,
+  activeUnreadByClickAction,
+  clickUnreadContactAction
+} from './rpa/input-utils'
 import {
   hasUnreadMessage as hasUnreadMessageDetect,
   isChatContactUnread as isChatContactUnreadDetect
@@ -227,6 +232,13 @@ export class RPADevice implements DesktopDevice {
   }
 
   // ── 动作层 ──
+
+  async fillDraft(text: string): Promise<void> {
+    const success = await fillDraftAction(this.appType, text)
+    if (!success) {
+      throw new Error('写入草稿失败')
+    }
+  }
 
   async sendMessage(text: string): Promise<void> {
     const success = await sendReplyAction(this.appType, text)

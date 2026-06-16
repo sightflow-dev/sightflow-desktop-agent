@@ -42,9 +42,12 @@ interface PerAppCapture {
   regions: BoxRegions | null
 }
 
+type ReplyMode = 'draft' | 'auto-send'
+
 interface AppSettings {
   locale: 'zh' | 'en'
   appType: AppType
+  replyMode: ReplyMode
   vision: {
     apiKey: string
   }
@@ -115,6 +118,7 @@ const settingsStore = new StoreClass({
   defaults: {
     locale: 'zh',
     appType: 'wechat',
+    replyMode: 'draft',
     vision: { apiKey: '' },
     chatProvider: {
       manifestUrl: '',
@@ -507,6 +511,7 @@ app.whenReady().then(async () => {
     }
     if (runtime) {
       runtime.updateAppType(settings.appType)
+      runtime.updateReplyMode(settings.replyMode)
     }
     return { success: true }
   })
@@ -681,7 +686,10 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
     }
 
     const mainWindow = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed()) ?? null
-    const log = (type: 'thinking' | 'reply' | 'skip' | 'error', content: string): void => {
+    const log = (
+      type: 'thinking' | 'reply' | 'draft' | 'skip' | 'error',
+      content: string
+    ): void => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('engine:log', { type, content })
       }
@@ -706,6 +714,7 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
     const channel = new GenericChannelSession(device)
     runtime = new RuntimeHost({
       appType,
+      replyMode: settings.replyMode,
       channel,
       provider,
       initialState: createInitialGenericChannelState(),
@@ -794,7 +803,7 @@ async function buildDevice(
   appType: AppType,
   settings: AppSettings,
   apiKey: string,
-  log: (type: 'thinking' | 'reply' | 'skip' | 'error', content: string) => void
+  log: (type: 'thinking' | 'reply' | 'draft' | 'skip' | 'error', content: string) => void
 ): Promise<{ device: DesktopDevice; strategy: CaptureStrategy }> {
   const perApp = settings.capture[appType] ?? { strategy: 'auto' as CaptureStrategy, regions: null }
   const effective = resolveSettingsStrategy(appType, settings)
@@ -937,6 +946,7 @@ function normalizeSettings(raw: any): AppSettings {
   return {
     locale: raw?.locale === 'en' ? 'en' : 'zh',
     appType: coerceAppType(raw?.appType),
+    replyMode: raw?.replyMode === 'auto-send' ? 'auto-send' : 'draft',
     vision: {
       apiKey: raw?.vision?.apiKey || oldApiKey || ''
     },

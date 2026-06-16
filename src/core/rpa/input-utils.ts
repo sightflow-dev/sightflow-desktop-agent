@@ -115,23 +115,10 @@ const getWeChatInputPosition = (bounds: any, scaleFactor: number) => {
   return { inputX: baseInputX + (Math.random() - 0.5) * 20, inputY: baseInputY - Math.random() * 5 }
 }
 
-/**
- * 业务原子 2 — 核心实现：按给定坐标发送消息（不依赖 VLM 缓存）。
- * `sendReplyAction`（VLM 路线）与 `BoxSelectDevice.sendMessage`（框选路线）共用此函数。
- *
- * 1. humanLikeMove → 输入框焦点坐标 (x, y)
- * 2. 隐式鼠标左键点击聚焦
- * 3. 剪贴板 + Cmd/Ctrl+V 粘贴
- * 4. Enter 发送
- */
-export async function sendReplyByCoordsAction(
-  x: number,
-  y: number,
-  text: string
-): Promise<boolean> {
+async function focusAndPasteByCoordsAction(x: number, y: number, text: string): Promise<boolean> {
   const robot = getRobot()
   if (!robot) {
-    console.error('[sendReplyByCoordsAction] RobotJS 缺失')
+    console.error('[focusAndPasteByCoordsAction] RobotJS 缺失')
     return false
   }
 
@@ -153,6 +140,21 @@ export async function sendReplyByCoordsAction(
 
     await randomDelayIn(300, 500)
 
+    return true
+  } catch (err: any) {
+    console.error('[focusAndPasteByCoordsAction] Failed:', err)
+    return false
+  }
+}
+
+async function finishSendAfterPaste(): Promise<boolean> {
+  const robot = getRobot()
+  if (!robot) {
+    console.error('[finishSendAfterPaste] RobotJS 缺失')
+    return false
+  }
+
+  try {
     robot.keyTap('enter')
 
     if (IS_WINDOWS) {
@@ -169,9 +171,63 @@ export async function sendReplyByCoordsAction(
 
     return true
   } catch (err: any) {
-    console.error('[sendReplyByCoordsAction] Failed:', err)
+    console.error('[finishSendAfterPaste] Failed:', err)
     return false
   }
+}
+
+export async function fillDraftByCoordsAction(
+  x: number,
+  y: number,
+  text: string
+): Promise<boolean> {
+  return focusAndPasteByCoordsAction(x, y, text)
+}
+
+/**
+ * 业务原子 2 — 核心实现：按给定坐标发送消息（不依赖 VLM 缓存）。
+ * `sendReplyAction`（VLM 路线）与 `BoxSelectDevice.sendMessage`（框选路线）共用此函数。
+ */
+export async function sendReplyByCoordsAction(
+  x: number,
+  y: number,
+  text: string
+): Promise<boolean> {
+  const pasted = await focusAndPasteByCoordsAction(x, y, text)
+  if (!pasted) return false
+  return await finishSendAfterPaste()
+}
+
+function resolveInputCoords(
+  appType: AppType,
+  bounds: { x: number; y: number; width: number; height: number },
+  scaleFactor: number
+): [number, number] {
+  const inputArea = getInputAreaFromCache(appType)
+  if (inputArea) {
+    const inputX = inputArea.coordinates[0] + (Math.random() - 0.5) * 10
+    const inputY = inputArea.coordinates[1] + (Math.random() - 0.5) * 4
+    return [inputX, inputY]
+  }
+
+  const pos = getWeChatInputPosition(bounds, scaleFactor)
+  return [pos.inputX, pos.inputY]
+}
+
+export async function fillDraftAction(appType: AppType, text: string): Promise<boolean> {
+  const windowInfo = await getWindowInfo(appType, false)
+  if (!windowInfo || !windowInfo.bounds) {
+    console.error('[fillDraftAction] 无法获取窗口信息')
+    return false
+  }
+
+  const [inputX, inputY] = resolveInputCoords(
+    appType,
+    windowInfo.bounds,
+    windowInfo.scaleFactor || 1
+  )
+
+  return fillDraftByCoordsAction(inputX, inputY, text)
 }
 
 /**
@@ -185,24 +241,11 @@ export async function sendReplyAction(appType: AppType, text: string): Promise<b
     return false
   }
 
-  let inputX: number | undefined
-  let inputY: number | undefined
-
-  // 优先从缓存获取输入框坐标（chatMainArea 反推）
-  const inputArea = getInputAreaFromCache(appType)
-  if (inputArea) {
-    inputX = inputArea.coordinates[0] + (Math.random() - 0.5) * 10
-    inputY = inputArea.coordinates[1] + (Math.random() - 0.5) * 4
-    console.log(`[sendReplyAction] 使用缓存输入框坐标: (${inputX}, ${inputY})`)
-  }
-
-  // Fallback 处理
-  if (inputX === undefined || inputY === undefined) {
-    console.log('[sendReplyAction] 使用 Fallback 逻辑生成输入框坐标')
-    const pos = getWeChatInputPosition(windowInfo.bounds, windowInfo.scaleFactor || 1)
-    inputX = pos.inputX
-    inputY = pos.inputY
-  }
+  const [inputX, inputY] = resolveInputCoords(
+    appType,
+    windowInfo.bounds,
+    windowInfo.scaleFactor || 1
+  )
 
   return sendReplyByCoordsAction(inputX, inputY, text)
 }

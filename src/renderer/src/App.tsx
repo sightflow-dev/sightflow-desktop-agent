@@ -5,13 +5,14 @@ import './index.css'
 
 interface LogEntry {
   time: string
-  type: 'thinking' | 'reply' | 'skip' | 'error'
+  type: 'thinking' | 'reply' | 'draft' | 'skip' | 'error'
   content: string
 }
 
 type EngineStatus = 'idle' | 'running' | 'error'
 type SettingsSection = 'base' | 'agent'
 type AppType = 'wechat' | 'wework' | 'dingtalk' | 'lark' | 'slack' | 'telegram' | 'generic'
+type ReplyMode = 'draft' | 'auto-send'
 
 type CaptureStrategy = 'auto' | 'vlm' | 'box-select'
 
@@ -123,6 +124,7 @@ interface PerAppCapture {
 interface AppSettings {
   locale: 'zh' | 'en'
   appType: AppType
+  replyMode: ReplyMode
   vision: {
     apiKey: string
   }
@@ -270,6 +272,7 @@ function ControlPanel({
 
   // 首屏目标应用 + 框选状态：直接读 / 写 settings，让用户上手第一步就能完成。
   const [appType, setAppType] = useState<AppType>('wechat')
+  const [replyMode, setReplyMode] = useState<ReplyMode>('draft')
   const [regions, setRegions] = useState<BoxRegions | null>(null)
   const [openingWizard, setOpeningWizard] = useState(false)
 
@@ -285,6 +288,7 @@ function ControlPanel({
         | AppSettings
         | undefined
       const initial = settings?.appType || 'wechat'
+      setReplyMode(settings?.replyMode || 'draft')
       setAppType(initial)
       await reloadRegionsForApp(initial)
     })()
@@ -334,6 +338,19 @@ function ControlPanel({
       setOpeningWizard(false)
     }
   }, [appType, status])
+
+  const handleReplyModeChange = useCallback(
+    async (next: ReplyMode) => {
+      if (status === 'running') return
+      setReplyMode(next)
+      await window.electron?.invoke('settings:set', { replyMode: next })
+      await window.electron?.invoke('engine:updateConfig', {
+        ...((await window.electron?.invoke('settings:getAll')) as AppSettings),
+        replyMode: next
+      })
+    },
+    [status]
+  )
 
   const addLog = useCallback((type: LogEntry['type'], content: string) => {
     const time = new Date().toLocaleTimeString('en-US', { hour12: false })
@@ -385,6 +402,12 @@ function ControlPanel({
         onOpenWizard={handleOpenWizard}
       />
 
+      <ReplyModeCard
+        replyMode={replyMode}
+        running={status === 'running'}
+        onChange={handleReplyModeChange}
+      />
+
       <div className="card">
         <div className="card-title">{t('control.log')}</div>
         <div className="message-log" ref={logRef}>
@@ -402,6 +425,45 @@ function ControlPanel({
             ))
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ReplyModeCard({
+  replyMode,
+  running,
+  onChange
+}: {
+  replyMode: ReplyMode
+  running: boolean
+  onChange: (mode: ReplyMode) => void
+}): React.JSX.Element {
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="card-title">{t('control.replyMode')}</div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          className={replyMode === 'draft' ? 'btn btn-primary' : 'btn btn-secondary'}
+          disabled={running}
+          onClick={() => onChange('draft')}
+          style={{ flex: 1 }}
+        >
+          {t('control.replyMode.draft')}
+        </button>
+        <button
+          className={replyMode === 'auto-send' ? 'btn btn-primary' : 'btn btn-secondary'}
+          disabled={running}
+          onClick={() => onChange('auto-send')}
+          style={{ flex: 1 }}
+        >
+          {t('control.replyMode.autoSend')}
+        </button>
+      </div>
+      <div className="form-hint" style={{ marginTop: 10 }}>
+        {replyMode === 'draft'
+          ? t('control.replyMode.draftHint')
+          : t('control.replyMode.autoSendHint')}
       </div>
     </div>
   )

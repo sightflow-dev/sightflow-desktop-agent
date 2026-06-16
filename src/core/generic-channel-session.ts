@@ -73,8 +73,13 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         break
 
       case 'provider.reply_text':
-        await this.device.sendMessage(event.content)
-        ctx.host.log('reply', event.content)
+        if (ctx.replyMode === 'draft') {
+          await this.device.fillDraft(event.content)
+          ctx.host.log('draft', event.content)
+        } else {
+          await this.device.sendMessage(event.content)
+          ctx.host.log('reply', event.content)
+        }
         await this.device.setChatBaseline()
         ctx.state.latestChatBaseline = Date.now()
         ctx.host.enqueue({ type: 'check_unread' })

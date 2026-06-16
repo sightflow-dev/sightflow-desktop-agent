@@ -1,6 +1,7 @@
 node_modules
 dist
 out
+.worktrees
 .DS_Store
 .eslintcache
 *.log*
