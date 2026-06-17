@@ -1,5 +1,7 @@
 # 聊天 Provider 接入
 
+<p align="right"><b>中文</b> · <a href="./provider.en.md">English</a></p>
+
 SightFlow 桌面端把“截图分析并生成回复”的聊天能力抽象为 Provider。外部技术使用者只需要提供一份 `manifest.json` 和一个 bundle 入口文件，应用会负责下载安装、读取配置、传入聊天截图，并消费 Provider 返回的事件。
 
 ## Provider 必须提供的结构
@@ -102,13 +104,18 @@ module.exports = {
 ```ts
 interface ProviderInput {
   screenshot: string
-  appType: 'wechat' | 'wework'
+  // 'wechat' | 'wework' | 'dingtalk' | 'lark' | 'slack' | 'telegram' | 'generic'
+  appType: AppType
   currentContact?: string
   ocrText?: string
+  // 运行时注入的经验卡片（工作记忆），Provider 可拼入 system prompt
+  memoryCards?: MemoryCardBrief[]
 }
 ```
 
 其中 `screenshot` 是 `data:image/...;base64,...` 格式的截图字符串。Provider 如果调用 OpenAI 兼容视觉接口，通常可以直接把它作为 `image_url.url` 传入；如果目标 API 只接受裸 base64，需要自行去掉 `base64,` 前缀。
+
+`memoryCards` 是工作记忆功能在运行时注入的经验卡片（每张含场景 / 怎么做 / 为什么）。Provider 可选择把它拼进 system prompt 来复用历史经验；不处理也不影响基本回复。详见 [工作记忆（Learn）](../README.md#-工作记忆learn)。
 
 Provider 可以返回的事件：
 
