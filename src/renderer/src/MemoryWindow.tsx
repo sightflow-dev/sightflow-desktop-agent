@@ -10,7 +10,17 @@ import { showToast } from './App'
 
 // ── 与 src/core/trace / memory 对齐的本地类型（renderer 约定：不跨层 import） ──
 
-type TracePhase = 'observe' | 'think' | 'act' | 'verify'
+type TracePhase =
+  | 'receive'
+  | 'observe'
+  | 'retrieve_memory'
+  | 'think'
+  | 'act'
+  | 'verify'
+  | 'wait'
+  | 'recover'
+  | 'escalate'
+  | 'outcome'
 
 interface TraceSessionMeta {
   sessionId: string
@@ -23,43 +33,81 @@ interface TraceSessionMeta {
   stepCount: number
 }
 
+interface HumanIntervention {
+  type: 'approve' | 'reject' | 'edit' | 'takeover' | 'annotate' | 'resume'
+  reason?: string
+  correction?: { wrongDecision?: string; correctedDecision?: string; reusableLesson?: string }
+}
+
 interface TraceStep {
   stepId: string
   sessionId: string
   seq: number
   ts: number
-  actor: 'agent' | 'human'
+  actor: 'agent' | 'human' | 'system'
   phase: TracePhase
   summary: string
   screen?: { screenshotPath: string }
   reasoning?: { content: string; memoryRefs?: string[] }
   action?: { kind: string; target?: [number, number]; payload?: string }
+  verification?: { expected: string; status: string; confidence?: number }
+  intervention?: HumanIntervention
   outcome?: { status: 'ok' | 'fail' | 'skip'; detail?: string; latencyMs?: number }
 }
 
+type MemoryStatus = 'pending_review' | 'active' | 'rejected' | 'deprecated'
+
 interface ExperienceCard {
   cardId: string
+  kind: 'event' | 'procedure' | 'decision' | 'constraint'
+  status: MemoryStatus
   scenario: string
   guidance: string
   rationale: string
   source: 'agent_summary' | 'human_takeover' | 'manual'
+  scope?: { appTypes?: string[]; taskTypes?: string[]; tags?: string[] }
+  confidence: number
+  riskLevel: 'low' | 'medium' | 'high'
   evidence: { sessionId?: string; stepIds?: string[] }
   enabled: boolean
-  stats: { used: number; success: number }
+  stats: {
+    retrieved: number
+    applied: number
+    verifiedSuccess: number
+    verifiedFailure: number
+    humanOverride: number
+  }
   createdAt: number
 }
 
 const PHASE_LABELS: Record<TracePhase, string> = {
+  receive: '接收',
   observe: '观察',
+  retrieve_memory: '取记忆',
   think: '判断',
   act: '动作',
-  verify: '验证'
+  verify: '验证',
+  wait: '等待',
+  recover: '恢复',
+  escalate: '接管',
+  outcome: '结果'
+}
+
+function phaseLabel(phase: string): string {
+  return PHASE_LABELS[phase as TracePhase] ?? phase
 }
 
 const SOURCE_LABELS: Record<ExperienceCard['source'], string> = {
   agent_summary: '轨迹归纳',
   human_takeover: '人工纠正',
   manual: '手动录入'
+}
+
+const STATUS_LABELS: Record<MemoryStatus, string> = {
+  pending_review: '待审核',
+  active: '已启用',
+  rejected: '已驳回',
+  deprecated: '已废弃'
 }
 
 function formatTime(ts: number): string {
@@ -358,9 +406,7 @@ function TraceView({
               }}
             >
               <div className="trace-step-top">
-                <span className={`phase-badge phase-${step.phase}`}>
-                  {PHASE_LABELS[step.phase]}
-                </span>
+                <span className={`phase-badge phase-${step.phase}`}>{phaseLabel(step.phase)}</span>
                 <span className="trace-step-time">
                   #{step.seq} · {formatTime(step.ts)}
                 </span>
@@ -470,7 +516,7 @@ function StepDetail({
         />
       ) : (
         <div className="step-detail-noscreen">
-          <span className={`phase-badge phase-${step.phase}`}>{PHASE_LABELS[step.phase]}</span>
+          <span className={`phase-badge phase-${step.phase}`}>{phaseLabel(step.phase)}</span>
           本步无界面截图
         </div>
       )}
@@ -512,6 +558,20 @@ function StepDetail({
             <span>📎 {step.reasoning.memoryRefs.length} 条团队经验参与了本步判断</span>
           </div>
         ) : null}
+        {step.verification ? (
+          <div className="step-detail-row">
+            <span className="step-detail-label">验证</span>
+            <span>
+              {step.verification.expected} · {step.verification.status}
+            </span>
+          </div>
+        ) : null}
+        {step.intervention?.correction ? (
+          <div className="step-detail-row">
+            <span className="step-detail-label">人工纠正</span>
+            <span>{step.intervention.correction.correctedDecision}</span>
+          </div>
+        ) : null}
       </div>
 
       {correcting ? (
@@ -551,15 +611,15 @@ function CorrectionForm({
     }
     setSaving(true)
     try {
-      const result = (await window.electron?.invoke('memory:addCard', {
+      const result = (await window.electron?.invoke('memory:addCorrection', {
+        sessionId: step.sessionId,
+        stepId: step.stepId,
         scenario,
         guidance,
-        rationale,
-        source: 'human_takeover',
-        evidence: { sessionId: step.sessionId, stepIds: [step.stepId] }
+        rationale
       })) as { success: boolean; error?: string }
       if (result?.success) {
-        showToast('已沉淀为团队经验，下一轮立即生效', 'success')
+        showToast('已提交为候选经验，审核通过后下一轮生效', 'success')
         onDone(true)
       } else {
         showToast(result?.error || '保存失败', 'error')
@@ -634,6 +694,24 @@ function CardsView({
     [onChanged]
   )
 
+  const handleApprove = useCallback(
+    async (card: ExperienceCard) => {
+      await window.electron?.invoke('memory:approveCard', card.cardId)
+      showToast('已批准启用，下一轮判断即可被检索', 'success')
+      await onChanged()
+    },
+    [onChanged]
+  )
+
+  const handleReject = useCallback(
+    async (card: ExperienceCard) => {
+      await window.electron?.invoke('memory:rejectCard', card.cardId)
+      showToast('已驳回', 'success')
+      await onChanged()
+    },
+    [onChanged]
+  )
+
   const handleDelete = useCallback(
     async (card: ExperienceCard) => {
       await window.electron?.invoke('memory:deleteCard', card.cardId)
@@ -643,12 +721,19 @@ function CardsView({
     [onChanged]
   )
 
+  // 待审核排前面：人工纠正 / 轨迹归纳的候选经验需要先过审才生效
+  const pending = cards.filter((c) => c.status === 'pending_review')
+
   return (
     <div className="memory-cards-view">
       <div className="memory-trace-header">
         <div>
           <h1>经验卡片</h1>
-          <p>启用中的卡片会在每轮判断前注入给智能体，被引用与成功次数自动统计。</p>
+          <p>
+            候选经验需审核通过才会被注入；启用中的卡片每轮判断前按场景检索 top-k 注入， 检索 / 应用
+            / 验证 / 人工推翻次数自动统计。
+            {pending.length > 0 ? ` 当前 ${pending.length} 条待审核。` : ''}
+          </p>
         </div>
       </div>
 
@@ -658,31 +743,51 @@ function CardsView({
         </div>
       ) : (
         <div className="memory-cards-list">
-          {cards.map((card) => (
-            <div key={card.cardId} className={`memory-card ${card.enabled ? '' : 'disabled'}`}>
-              <div className="memory-card-top">
-                <span className={`source-badge source-${card.source}`}>
-                  {SOURCE_LABELS[card.source]}
-                </span>
-                <span className="memory-card-stats">
-                  被引用 {card.stats.used} 次 · 成功 {card.stats.success} 次
-                </span>
-                <div className="memory-card-actions">
-                  <button className="btn-text" onClick={() => handleToggle(card)}>
-                    {card.enabled ? '停用' : '启用'}
-                  </button>
-                  <button className="btn-text danger" onClick={() => handleDelete(card)}>
-                    删除
-                  </button>
+          {cards.map((card) => {
+            const isPending = card.status === 'pending_review'
+            const inactive = card.status !== 'active' || !card.enabled
+            return (
+              <div key={card.cardId} className={`memory-card ${inactive ? 'disabled' : ''}`}>
+                <div className="memory-card-top">
+                  <span className={`source-badge source-${card.source}`}>
+                    {SOURCE_LABELS[card.source]}
+                  </span>
+                  <span className={`status-badge status-${card.status}`}>
+                    {STATUS_LABELS[card.status]}
+                  </span>
+                  <span className="memory-card-stats">
+                    检索 {card.stats.retrieved} · 应用 {card.stats.applied} · 验证成功{' '}
+                    {card.stats.verifiedSuccess}
+                    {card.stats.humanOverride > 0 ? ` · 人工推翻 ${card.stats.humanOverride}` : ''}
+                  </span>
+                  <div className="memory-card-actions">
+                    {isPending ? (
+                      <>
+                        <button className="btn-text" onClick={() => handleApprove(card)}>
+                          批准
+                        </button>
+                        <button className="btn-text danger" onClick={() => handleReject(card)}>
+                          驳回
+                        </button>
+                      </>
+                    ) : card.status === 'active' ? (
+                      <button className="btn-text" onClick={() => handleToggle(card)}>
+                        {card.enabled ? '停用' : '启用'}
+                      </button>
+                    ) : null}
+                    <button className="btn-text danger" onClick={() => handleDelete(card)}>
+                      删除
+                    </button>
+                  </div>
                 </div>
+                <div className="memory-card-scenario">【{card.scenario}】</div>
+                <div className="memory-card-guidance">{card.guidance}</div>
+                {card.rationale ? (
+                  <div className="memory-card-rationale">为什么：{card.rationale}</div>
+                ) : null}
               </div>
-              <div className="memory-card-scenario">【{card.scenario}】</div>
-              <div className="memory-card-guidance">{card.guidance}</div>
-              {card.rationale ? (
-                <div className="memory-card-rationale">为什么：{card.rationale}</div>
-              ) : null}
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>

@@ -9,6 +9,7 @@ import {
 } from './session-types'
 import { AppType } from './rpa/types'
 import { MemoryCardBrief, TraceStepInput } from './trace/trace-types'
+import type { MemoryQuery } from './memory/memory-retriever'
 
 interface RuntimeHostOptions<TState> {
   appType: AppType
@@ -18,8 +19,11 @@ interface RuntimeHostOptions<TState> {
   onLog?: (type: 'thinking' | 'reply' | 'skip' | 'error', content: string) => void
   /** work-trace 落点：channel 通过 host.trace() 提交的每条轨迹都会回调到这里 */
   onTrace?: (step: TraceStepInput) => void
-  /** 每轮 provider 调用前取当前启用的经验卡片，注入 ProviderInput */
-  getMemoryCards?: () => MemoryCardBrief[]
+  /**
+   * 每轮 provider 调用前按当前场景检索 top-k 经验卡片注入 ProviderInput。
+   * query 由本轮 ProviderInput 构造（appType + 可得文本），实现方负责 top-k / 预算 / 埋点。
+   */
+  getMemoryCards?: (query: MemoryQuery) => MemoryCardBrief[]
   /** 会话结束（含内部错误停止）时回调，用于收尾轨迹会话 */
   onSessionEnd?: () => void
 }
@@ -100,9 +104,14 @@ export class RuntimeHost<TState> {
     }
   }
 
-  /** provider 调用前注入工作记忆（经验卡片），并记下卡片 id 供轨迹引用标记 */
+  /** provider 调用前按场景检索注入工作记忆（经验卡片），并记下卡片 id 供轨迹引用标记 */
   private runProviderWithMemory(input: ProviderInput): AsyncIterable<ProviderEvent> {
-    const cards = this.options.getMemoryCards?.() ?? []
+    const query: MemoryQuery = {
+      appType: input.appType,
+      // 当前管线在 provider 调用前能拿到的文本线索：联系人名 / OCR（可空）
+      text: [input.currentContact, input.ocrText].filter(Boolean).join(' ') || undefined
+    }
+    const cards = this.options.getMemoryCards?.(query) ?? []
     this.lastInjectedCardIds = cards.map((card) => card.cardId)
     return this.options.provider.run(cards.length ? { ...input, memoryCards: cards } : input)
   }

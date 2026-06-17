@@ -12,8 +12,15 @@
 import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { AppType } from '../rpa/types'
-import { TraceSessionMeta, TraceStep, TraceStepInput } from './trace-types'
+import type { AppType } from '../rpa/types'
+import {
+  CURRENT_TRACE_SCHEMA_VERSION,
+  normalizeTraceStep,
+  type HumanIntervention,
+  type TraceSessionMeta,
+  type TraceStep,
+  type TraceStepInput
+} from './trace-types'
 
 const SESSIONS_DIR = 'sessions'
 
@@ -45,6 +52,7 @@ export class TraceRecorder {
       engineVersion: input.engineVersion,
       providerId: input.providerId,
       model: input.model,
+      schemaVersion: CURRENT_TRACE_SCHEMA_VERSION,
       stepCount: 0
     }
 
@@ -72,8 +80,11 @@ export class TraceRecorder {
 
     this.seq += 1
     const step: TraceStep = {
+      schemaVersion: CURRENT_TRACE_SCHEMA_VERSION,
       stepId: randomUUID(),
       sessionId: session.sessionId,
+      taskId: input.taskId ?? session.taskId,
+      episodeId: input.episodeId ?? session.episodeId,
       seq: this.seq,
       ts: Date.now(),
       actor: input.actor ?? 'agent',
@@ -81,6 +92,8 @@ export class TraceRecorder {
       summary: input.summary,
       reasoning: input.reasoning,
       action: input.action,
+      verification: input.verification,
+      intervention: input.intervention,
       outcome: input.outcome
     }
 
@@ -180,11 +193,69 @@ export async function readTraceSession(
     steps = raw
       .split('\n')
       .filter((line) => line.trim())
-      .map((line) => JSON.parse(line) as TraceStep)
+      .map((line) => {
+        try {
+          // 历史轨迹（v0，无 schemaVersion）读取时归一化补字段，不破坏旧数据
+          return normalizeTraceStep(JSON.parse(line) as TraceStep)
+        } catch {
+          return null
+        }
+      })
+      .filter((step): step is TraceStep => step !== null)
   } catch {
     // 会话刚启动还没有步骤，返回空列表
   }
   return { session, steps }
+}
+
+/**
+ * 把一条人工介入（纠正 / 接管）作为 actor='human' 的 TraceStep 追加到既有会话。
+ * 与运行时 TraceRecorder 解耦：可在会话已结束后调用（人工纠正通常发生在事后回放时）。
+ * 直接读 session.json 取当前 stepCount 作为新 seq 基准，append 到 trace.jsonl，
+ * 并回写 stepCount。失败只打日志、返回 null，不抛出。
+ */
+export async function appendHumanInterventionStep(
+  baseDir: string,
+  sessionId: string,
+  input: {
+    summary: string
+    intervention: HumanIntervention
+    reasoning?: TraceStep['reasoning']
+  }
+): Promise<TraceStep | null> {
+  const dir = path.join(baseDir, SESSIONS_DIR, sessionId)
+  let session: TraceSessionMeta
+  try {
+    session = JSON.parse(await readFile(path.join(dir, 'session.json'), 'utf8'))
+  } catch {
+    return null
+  }
+
+  const seq = (session.stepCount ?? 0) + 1
+  const step: TraceStep = {
+    schemaVersion: CURRENT_TRACE_SCHEMA_VERSION,
+    stepId: randomUUID(),
+    sessionId,
+    taskId: session.taskId,
+    episodeId: session.episodeId,
+    seq,
+    ts: Date.now(),
+    actor: 'human',
+    phase: 'escalate',
+    summary: input.summary,
+    reasoning: input.reasoning,
+    intervention: input.intervention
+  }
+
+  try {
+    await appendFile(path.join(dir, 'trace.jsonl'), `${JSON.stringify(step)}\n`, 'utf8')
+    session.stepCount = seq
+    await writeFile(path.join(dir, 'session.json'), `${JSON.stringify(session, null, 2)}\n`, 'utf8')
+    return step
+  } catch (error) {
+    console.error('[TraceRecorder] 人工介入轨迹写入失败:', error)
+    return null
+  }
 }
 
 /** 读取某一步的截图，返回 dataURL（供 renderer <img> 直接使用） */

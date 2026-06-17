@@ -32,7 +32,9 @@ import {
   startSkillServer,
   stopSkillServer
 } from './skill-server'
+import { randomUUID } from 'node:crypto'
 import {
+  appendHumanInterventionStep,
   listTraceSessions,
   readTraceScreenshot,
   readTraceSession,
@@ -40,6 +42,12 @@ import {
 } from '../core/trace/trace-recorder'
 import { TraceStepInput } from '../core/trace/trace-types'
 import { ExperienceStore, NewExperienceCard } from '../core/memory/experience-store'
+import {
+  DEFAULT_RETRIEVAL_POLICY,
+  MemoryQuery,
+  retrieveCards,
+  toBrief
+} from '../core/memory/memory-retriever'
 import { induceCardsFromSession } from '../core/memory/learn-from-session'
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
 
@@ -649,6 +657,84 @@ app.whenReady().then(async () => {
     return { success: getExperienceStore().setEnabled(cardId, enabled === true) }
   })
 
+  // 审核：候选经验（pending_review）批准启用 / 驳回
+  ipcMain.handle('memory:approveCard', async (_event, cardId: string) => {
+    return { success: getExperienceStore().approve(cardId) }
+  })
+
+  ipcMain.handle('memory:rejectCard', async (_event, cardId: string) => {
+    return { success: getExperienceStore().reject(cardId) }
+  })
+
+  // 人工纠正：在某条轨迹步骤上「这步该怎么做」→ 候选经验（pending_review，需审核后启用）
+  // 同时把这次纠正作为 actor='human' 的轨迹步骤回写，并给被纠正步引用过的卡片记一次 humanOverride。
+  ipcMain.handle(
+    'memory:addCorrection',
+    async (
+      _event,
+      args: {
+        sessionId: string
+        stepId: string
+        scenario: string
+        guidance: string
+        rationale?: string
+      }
+    ) => {
+      const { sessionId, stepId } = args ?? {}
+      if (!args?.scenario?.trim() || !args?.guidance?.trim()) {
+        return { success: false, error: '场景和正确做法不能为空' }
+      }
+      if (typeof sessionId !== 'string' || typeof stepId !== 'string') {
+        return { success: false, error: '缺少轨迹定位信息' }
+      }
+
+      const store = getExperienceStore()
+      const data = await readTraceSession(worktraceBaseDir(), sessionId)
+      const correctedStep = data?.steps.find((s) => s.stepId === stepId)
+      const appType = data?.session.appType
+
+      // 候选经验：作用域绑定当前应用，pending_review，待人工审核
+      const [card] = store.addCards([
+        {
+          scenario: args.scenario,
+          guidance: args.guidance,
+          rationale: args.rationale,
+          source: 'human_takeover',
+          kind: 'decision',
+          riskLevel: 'medium',
+          status: 'pending_review',
+          scope: appType ? { appTypes: [appType] } : undefined,
+          evidence: { sessionId, stepIds: [stepId] }
+        }
+      ])
+
+      // 被纠正的步骤若引用过经验卡片，给这些卡片记一次「人工推翻」负反馈
+      const overriddenRefs = correctedStep?.reasoning?.memoryRefs ?? []
+      if (overriddenRefs.length) store.recordHumanOverride(overriddenRefs)
+
+      // 把纠正动作回写为人工轨迹步骤（actor=human），让「人为什么介入」留在世界线里
+      await appendHumanInterventionStep(worktraceBaseDir(), sessionId, {
+        summary: `人工纠正：${args.scenario}`,
+        reasoning: { content: args.guidance },
+        intervention: {
+          interventionId: randomUUID(),
+          type: 'edit',
+          reason: args.rationale,
+          beforeStepId: stepId,
+          correction: {
+            wrongDecision: correctedStep?.summary,
+            correctedDecision: args.guidance,
+            reusableLesson: args.scenario
+          },
+          memoryCardId: card?.cardId,
+          ts: Date.now()
+        }
+      })
+
+      return { success: true, cards: card ? [card] : [] }
+    }
+  )
+
   // ── Runtime / Session IPC（沿用 legacy engine:* 通道名） ──
   ipcMain.handle('engine:start', async (_event, config) => {
     const result = await startEngineCore(config)
@@ -884,10 +970,10 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
       const step = recorder.record(input)
       if (!step) return
 
-      // 继承闭环：带经验引用的回复成功发送 → 卡片 used/success 计数
+      // 继承闭环：带经验引用的回复发送 → 卡片 applied + 按动作结果记 verifiedSuccess/Failure
       const refs = step.reasoning?.memoryRefs
       if (step.phase === 'act' && step.action?.kind === 'send' && refs?.length) {
-        getExperienceStore().recordUsage(refs, step.outcome?.status === 'ok')
+        getExperienceStore().recordApplied(refs, step.outcome?.status ?? 'skip')
       }
 
       // 实时推给工作记忆窗口
@@ -906,7 +992,13 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
       initialState: createInitialGenericChannelState(),
       onLog: log,
       onTrace,
-      getMemoryCards: () => getExperienceStore().getActiveCardBriefs(),
+      getMemoryCards: (query: MemoryQuery) => {
+        // 按场景检索 top-k（替代全量注入）：硬过滤作用域 + 质量/相关性排序 + 字符预算
+        const store = getExperienceStore()
+        const picked = retrieveCards(store.getRetrievableCards(), query, DEFAULT_RETRIEVAL_POLICY)
+        if (picked.length) store.recordRetrieved(picked.map((card) => card.cardId))
+        return picked.map(toBrief)
+      },
       onSessionEnd: () => recorder.endSession()
     })
 
