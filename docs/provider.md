@@ -115,7 +115,7 @@ interface ProviderInput {
 
 其中 `screenshot` 是 `data:image/...;base64,...` 格式的截图字符串。Provider 如果调用 OpenAI 兼容视觉接口，通常可以直接把它作为 `image_url.url` 传入；如果目标 API 只接受裸 base64，需要自行去掉 `base64,` 前缀。
 
-`memoryCards` 是工作记忆功能在运行时注入的经验卡片（每张含场景 / 怎么做 / 为什么）。Provider 可选择把它拼进 system prompt 来复用历史经验；不处理也不影响基本回复。详见 [工作记忆（Learn）](../README.md#-工作记忆learn)。
+`memoryCards` 是工作记忆功能在运行时注入的经验卡片（每张含场景 / 怎么做 / 为什么）。Provider 可选择把它拼进 system prompt 来复用历史经验；不处理也不影响基本回复。详见 [README 的工作记忆引擎章节](../README.zh-CN.md)。
 
 Provider 可以返回的事件：
 

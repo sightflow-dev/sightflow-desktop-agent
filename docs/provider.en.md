@@ -115,7 +115,7 @@ interface ProviderInput {
 
 Here `screenshot` is a screenshot string in `data:image/...;base64,...` form. If your Provider calls an OpenAI-compatible vision API, you can usually pass it straight into `image_url.url`; if the target API only accepts raw base64, strip the `base64,` prefix yourself.
 
-`memoryCards` are the experience cards injected at runtime by the Work Memory feature (each carries a scenario / guidance / rationale). A Provider may fold them into its system prompt to reuse past experience; ignoring them does not affect basic replies. See [Work Memory (Learn)](../README.en.md#-work-memory-learn).
+`memoryCards` are the experience cards injected at runtime by the Work Memory feature (each carries a scenario / guidance / rationale). A Provider may fold them into its system prompt to reuse past experience; ignoring them does not affect basic replies. See the Work Memory Runtime section in the [README](../README.md).
 
 Events a Provider can return:
 
