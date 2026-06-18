@@ -45,6 +45,9 @@
     "pixelmatch": "^7.1.0",
     "pngjs": "^7.0.0"
   },
+  "optionalDependencies": {
+    "playwright-core": "^1.49.0"
+  },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "^3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",

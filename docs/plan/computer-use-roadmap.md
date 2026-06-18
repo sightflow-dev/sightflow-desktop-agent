@@ -47,8 +47,8 @@ Action Space(平台无关): click/double/type/key/scroll/drag/open_url/wait/obse
 
 ## 分阶段
 
-- **Phase 1(本次,已落地)** — 语义动作空间 + 跨平台收口(地基)。见下。
-- **Phase 2** — BrowserSurface(Playwright + browser-use 范式);新增 WhatsApp Web / TikTok Shop 网页 Channel。
+- **Phase 1(已落地)** — 语义动作空间 + 跨平台收口(地基)。见下。
+- **Phase 2(本次,已落地核心)** — 统一 Surface 接口 + BrowserSurface(browser-use 范式)。见下。
 - **Phase 3** — Grounder 可切换 + UI-TARS 接入;用 Eval/Model-Replay 在录好的轨迹上离线 A/B(doubao vs UI-TARS)。
 - **Phase 4** — 记忆驱动操作:检索增强规划 + 轨迹→SOP 技能归纳(人审门控)+ grounding 缓存,用已建五维度量证明「记忆让操作更准」。
 
@@ -83,3 +83,38 @@ Action Space(平台无关): click/double/type/key/scroll/drag/open_url/wait/obse
 - 本阶段只统一了 desktop 面的语义标签与坐标换算;**BrowserSurface 尚未实现**(Phase 2)。
 - 动作执行仍走现有 robotjs 路径;尚未抽出统一 `Surface` 执行接口(Phase 2 随浏览器面一起定）。
 - semanticTarget 目前由 channel 静态打标;Phase 4 接 grounding 缓存后,可按语义目标命中缓存跳过 VLM 调用并统计命中率。
+
+---
+
+## Phase 2 已落地核心(本次提交)
+
+把「谁来执行 + 怎么观察」抽象成统一 `Surface`，并实现 **BrowserSurface**(browser-use 范式)，
+让浏览器操作长在同一套语义动作空间 + work-trace 上。环境无显示器，故 Playwright 适配器为
+「已实现、待真机验证」，但**脑(元素编号 / 序列化 / 再接地 / 动作映射)100% 单测覆盖**。
+
+### 交付
+1. **统一操作面契约** `src/core/surface/surface-types.ts`:`Surface`(observe/act/open/close)、
+   `SurfaceObservation`(编号元素 + elementsText + 截图)、`SurfaceElement`、`ActionResult`。
+   desktop / browser / (未来)api 都实现它——这是 Phase 1「动作空间」补上的「执行面」一半。
+2. **浏览器「脑」(纯函数,可测)** `src/core/browser/dom-elements.ts`:
+   `indexElements`(编号)、`serializeElements`(LLM 可读清单 `[1]<button>发送</button>`)、
+   `resolveTarget`(按 [编号]/名称/模糊/bbox **再接地**，找不到返回 null 不乱点)。
+   这是 browser-use 范式在 TS 的核心 IP:DOM 接地比像素稳，产出天然语义动作可继承。
+3. **BrowserSurface** `src/core/browser/browser-surface.ts`:把语义 Action(click/type/send/
+   scroll/open_url/key)翻译成浏览器操作，目标用 DOM 清单再接地，`groundingSource='dom'`，
+   回报 `resolved{semanticTarget,index,bbox}` 供 channel 落 work-trace。driver 注入，fake driver 全测。
+4. **Playwright 适配器** `src/core/browser/browser-driver.ts`:`BrowserDriver` 接口 +
+   `PlaywrightBrowserDriver`。playwright-core 列为 **optionalDependency**，运行时按需 `import`，
+   未安装给出清晰报错(`npm i playwright-core && npx playwright install chromium`)。
+
+### 测试 / 校验
+- `npm test` 42 例全绿(新增 dom-elements 编号/序列化/再接地、BrowserSurface 动作映射，fake driver)。
+- `npm run typecheck` 通过(懒加载规避编译期模块解析，未装 playwright 也能 typecheck/打包)；
+  新文件 eslint 0 问题。
+
+### 待真机验证 / Phase 2b
+- `PlaywrightBrowserDriver` 的 DOM 抓取脚本与点击/填充需在**有显示器的真机**上跑通(本环境无法)。
+- 还未接入运行主循环:`BrowserSurface` 目前是库能力，**尚未做成 Channel**。Phase 2b:
+  实现一个 `BrowserChannelSession`(类比 GenericChannelSession)把 observe→think→act→trace 串起来，
+  接第一个网页场景(WhatsApp Web 或 TikTok Shop 其一)，跑通「浏览器操作 + work-trace + 记忆继承」闭环。
+- DesktopDevice 尚未改造成 `Surface` 实现(增量进行，避免动主路径)。
