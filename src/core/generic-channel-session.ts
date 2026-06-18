@@ -56,7 +56,7 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
           ctx.host.trace({
             phase: 'observe',
             summary: '识别聊天窗口布局',
-            action: { kind: 'measure' },
+            action: { kind: 'measure', surface: 'desktop', semanticTarget: '聊天窗口布局' },
             outcome: {
               status: 'fail',
               detail: result.error || '界面识别失败',
@@ -72,7 +72,7 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         ctx.host.trace({
           phase: 'observe',
           summary: '识别聊天窗口布局',
-          action: { kind: 'measure' },
+          action: { kind: 'measure', surface: 'desktop', semanticTarget: '聊天窗口布局' },
           outcome: { status: 'ok', latencyMs: Date.now() - measureStart }
         })
         ctx.host.enqueue({ type: 'observe_chat' })
@@ -106,7 +106,12 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         ctx.host.trace({
           phase: 'act',
           summary: '发送回复',
-          action: { kind: 'send', payload: event.content },
+          action: {
+            kind: 'send',
+            surface: 'desktop',
+            semanticTarget: '消息输入框',
+            payload: event.content
+          },
           outcome: { status: 'ok', latencyMs: Date.now() - sendStart }
         })
         await this.device.setChatBaseline()
@@ -179,7 +184,12 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
         ctx.host.trace({
           phase: 'act',
           summary: '点击未读会话入口',
-          action: { kind: 'click', target: chatEntranceCoords },
+          action: {
+            kind: 'click',
+            surface: 'desktop',
+            semanticTarget: '未读会话入口',
+            target: chatEntranceCoords
+          },
           outcome: { status: 'ok' }
         })
         await this.device.activeUnreadByClick(chatEntranceCoords)
@@ -326,7 +336,12 @@ export class GenericChannelSession implements ChannelSession<GenericChannelState
     ctx.host.trace({
       phase: 'act',
       summary: '打开未读会话',
-      action: { kind: 'click', target: contactResult.firstContactCoords },
+      action: {
+        kind: 'click',
+        surface: 'desktop',
+        semanticTarget: '未读联系人（列表首条）',
+        target: contactResult.firstContactCoords
+      },
       outcome: { status: 'ok' }
     })
     await this.device.clickUnreadContact(contactResult.firstContactCoords)

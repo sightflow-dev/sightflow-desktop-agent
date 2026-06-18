@@ -10,6 +10,7 @@
 // 读取时由 normalizeTraceStep 补 schemaVersion='0'）。详见 trace-recorder.ts。
 
 import type { AppType } from '../rpa/types'
+import type { ActionKind, GroundingSource, Surface } from '../action/action-types'
 
 /** 当前 trace schema 版本。历史（无该字段）的步骤读取时标记为 '0'。 */
 export const CURRENT_TRACE_SCHEMA_VERSION = '1.0'
@@ -33,6 +34,7 @@ export type TracePhase =
   | 'outcome'
 
 export type TraceOutcomeStatus = 'ok' | 'fail' | 'skip'
+/** @deprecated 改用 action-types 的 ActionKind（语义动作空间，本类型是其子集） */
 export type TraceActionKind = 'click' | 'send' | 'measure' | 'wait'
 
 export interface TraceSessionMeta {
@@ -59,10 +61,21 @@ export interface TraceReasoning {
 }
 
 export interface TraceAction {
-  kind: TraceActionKind
-  /** 屏幕坐标（click 类动作） */
+  kind: ActionKind
+  /** 操作面：动作落在 desktop / browser / api 哪个执行环境 */
+  surface?: Surface
+  /**
+   * 语义目标 —— 可继承的关键字段。记「点搜索框」而不是「点 (412,88)」，
+   * 换分辨率 / 换 OS / 换模型仍可复用（复用时对该语义目标重新接地）。
+   */
+  semanticTarget?: string
+  /** 接地中间产物：归一化 0-1000 bbox（跨分辨率可复算） */
+  bbox?: [number, number, number, number]
+  /** 实际执行的屏幕坐标（最易随环境变化；历史轨迹只有这一层） */
   target?: [number, number]
-  /** 动作负载（send 的文本等） */
+  /** 这个坐标怎么定位出来的（vlm / box-select / dom / cache …），评测与缓存命中统计用 */
+  groundingSource?: GroundingSource
+  /** 动作负载（send / type 的文本等） */
   payload?: string
 }
 

@@ -8,8 +8,7 @@ import { AIClient } from '../ai-client'
 import { AppType, ScreenRect } from './types'
 import { captureWechatWindow } from './screenshot-utils'
 import { getWindowInfo, getWindowInfoSync } from './window-utils'
-
-const IS_WINDOWS = process.platform === 'win32'
+import { windowLogicalToScreen } from '../platform/platform'
 
 // ── 类型定义 ──
 
@@ -128,21 +127,10 @@ export function bboxToScreenCoords(
 ): [number, number] {
   const [x1, y1, x2, y2] = bbox
 
-  // 归一化 → 相对于窗口的逻辑像素
+  // 归一化 → 相对于窗口的逻辑像素（中心点），再按平台规则换算到屏幕坐标
   const logicalX = ((x1 + x2) / 2 / 1000) * bounds.width
   const logicalY = ((y1 + y2) / 2 / 1000) * bounds.height
-
-  if (IS_WINDOWS) {
-    // Windows: robotjs 用物理像素
-    const screenX = Math.round((bounds.x + logicalX) * scaleFactor)
-    const screenY = Math.round((bounds.y + logicalY) * scaleFactor)
-    return [screenX, screenY]
-  } else {
-    // macOS: robotjs 用逻辑像素
-    const screenX = Math.round(bounds.x + logicalX)
-    const screenY = Math.round(bounds.y + logicalY)
-    return [screenX, screenY]
-  }
+  return windowLogicalToScreen(logicalX, logicalY, bounds, scaleFactor)
 }
 
 /**
@@ -157,15 +145,7 @@ export function pointToScreenCoords(
 
   const logicalX = (px / 1000) * bounds.width
   const logicalY = (py / 1000) * bounds.height
-
-  if (IS_WINDOWS) {
-    return [
-      Math.round((bounds.x + logicalX) * scaleFactor),
-      Math.round((bounds.y + logicalY) * scaleFactor)
-    ]
-  } else {
-    return [Math.round(bounds.x + logicalX), Math.round(bounds.y + logicalY)]
-  }
+  return windowLogicalToScreen(logicalX, logicalY, bounds, scaleFactor)
 }
 
 /**
@@ -324,7 +304,10 @@ export async function getUnreadArea(
   // 有完整 VLM bbox 缓存直接返回。box-select 写入的 rect-only 区域不能用于红点 bbox 检测。
   if (cache?.chatEntranceArea?.bbox && cache?.firstContact?.bbox) {
     return {
-      chatEntranceArea: { bbox: cache.chatEntranceArea.bbox, coordinates: cache.chatEntranceArea.coordinates },
+      chatEntranceArea: {
+        bbox: cache.chatEntranceArea.bbox,
+        coordinates: cache.chatEntranceArea.coordinates
+      },
       firstContact: { bbox: cache.firstContact.bbox, coordinates: cache.firstContact.coordinates }
     }
   }

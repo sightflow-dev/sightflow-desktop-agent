@@ -49,7 +49,15 @@ interface TraceStep {
   summary: string
   screen?: { screenshotPath: string }
   reasoning?: { content: string; memoryRefs?: string[] }
-  action?: { kind: string; target?: [number, number]; payload?: string }
+  action?: {
+    kind: string
+    surface?: string
+    semanticTarget?: string
+    bbox?: [number, number, number, number]
+    target?: [number, number]
+    groundingSource?: string
+    payload?: string
+  }
   verification?: { expected: string; status: string; confidence?: number }
   intervention?: HumanIntervention
   outcome?: { status: 'ok' | 'fail' | 'skip'; detail?: string; latencyMs?: number }
@@ -537,6 +545,7 @@ function StepDetail({
             <span className="step-detail-label">动作</span>
             <span>
               {step.action.kind}
+              {step.action.semanticTarget ? ` → ${step.action.semanticTarget}` : ''}
               {step.action.target ? `（${step.action.target[0]}, ${step.action.target[1]}）` : ''}
               {step.action.payload ? `：${step.action.payload}` : ''}
             </span>

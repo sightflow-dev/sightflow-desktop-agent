@@ -2,8 +2,8 @@ import { clipboard } from 'electron'
 import { AppType } from './types'
 import { getWindowInfo } from './window-utils'
 import { getInputAreaFromCache } from './vision-utils'
+import { primaryModifier } from '../platform/platform'
 const IS_WINDOWS = process.platform === 'win32'
-const IS_MAC = process.platform === 'darwin'
 
 import { delay, randomDelayIn, getRobot } from './util'
 
@@ -41,15 +41,17 @@ async function humanLikeMove(
   // 生成贝塞尔曲线控制点 (Cubic Bezier)
   const ctrl1X = startPos.x + dx * Math.random() * 0.5 + (Math.random() - 0.5) * distance * 0.2
   const ctrl1Y = startPos.y + dy * Math.random() * 0.5 + (Math.random() - 0.5) * distance * 0.2
-  const ctrl2X = startPos.x + dx * (0.5 + Math.random() * 0.5) + (Math.random() - 0.5) * distance * 0.2
-  const ctrl2Y = startPos.y + dy * (0.5 + Math.random() * 0.5) + (Math.random() - 0.5) * distance * 0.2
+  const ctrl2X =
+    startPos.x + dx * (0.5 + Math.random() * 0.5) + (Math.random() - 0.5) * distance * 0.2
+  const ctrl2Y =
+    startPos.y + dy * (0.5 + Math.random() * 0.5) + (Math.random() - 0.5) * distance * 0.2
 
   for (let i = 1; i <= steps; i++) {
     const t = i / steps
-    
+
     // 匀速转非线性 (Ease Out)
     const easeT = t * (2 - t)
-    
+
     const mt = 1 - easeT
     const mt2 = mt * mt
     const mt3 = mt2 * mt
@@ -57,8 +59,10 @@ async function humanLikeMove(
     const easeT3 = easeT2 * easeT
 
     // 贝塞尔曲线公式计算
-    const x = mt3 * startPos.x + 3 * mt2 * easeT * ctrl1X + 3 * mt * easeT2 * ctrl2X + easeT3 * targetX
-    const y = mt3 * startPos.y + 3 * mt2 * easeT * ctrl1Y + 3 * mt * easeT2 * ctrl2Y + easeT3 * targetY
+    const x =
+      mt3 * startPos.x + 3 * mt2 * easeT * ctrl1X + 3 * mt * easeT2 * ctrl2X + easeT3 * targetX
+    const y =
+      mt3 * startPos.y + 3 * mt2 * easeT * ctrl1Y + 3 * mt * easeT2 * ctrl2Y + easeT3 * targetY
 
     // 加入随机细微抖动 (±1像素)
     const jitterX = i === steps ? 0 : (Math.random() - 0.5) * 2
@@ -69,7 +73,7 @@ async function humanLikeMove(
     // 变频延迟，模拟人类微停顿
     let stepDelay = baseDelay + Math.random() * 2
     if (i > steps * 0.8) stepDelay += 2
-    
+
     await delay(stepDelay)
   }
 }
@@ -108,7 +112,10 @@ const getWeChatInputPosition = (bounds: any, scaleFactor: number) => {
   if (IS_WINDOWS) {
     const baseInputX = Math.round((bounds.x + bounds.width - 150) * scaleFactor)
     const baseInputY = Math.round((bounds.y + bounds.height - 40) * scaleFactor)
-    return { inputX: baseInputX + (Math.random() - 0.5) * 20, inputY: baseInputY - Math.random() * 5 }
+    return {
+      inputX: baseInputX + (Math.random() - 0.5) * 20,
+      inputY: baseInputY - Math.random() * 5
+    }
   }
   const baseInputX = bounds.x + bounds.width - 250
   const baseInputY = bounds.y + bounds.height - 20
@@ -145,11 +152,8 @@ export async function sendReplyByCoordsAction(
     clipboard.writeText(text)
     await randomDelayIn(50, 100)
 
-    if (IS_MAC) {
-      robot.keyTap('v', ['command'])
-    } else {
-      robot.keyTap('v', ['control'])
-    }
+    // 粘贴：mac=Cmd+V / win|linux=Ctrl+V（修饰键决策集中到 platform 模块）
+    robot.keyTap('v', [primaryModifier()])
 
     await randomDelayIn(300, 500)
 
@@ -265,9 +269,7 @@ export async function activeUnreadByClickAction(
  *
  * 参考 whatsapp-agent-demo 的 clickUnreadContact
  */
-export async function clickUnreadContactAction(
-  coordinates: [number, number]
-): Promise<void> {
+export async function clickUnreadContactAction(coordinates: [number, number]): Promise<void> {
   const robot = getRobot()
   if (!robot) return
 
