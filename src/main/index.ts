@@ -39,6 +39,7 @@ import {
   TraceRecorder
 } from '../core/trace/trace-recorder'
 import { TraceStepInput } from '../core/trace/trace-types'
+import { getActiveWindowContextSync } from '../core/rpa/window-utils'
 import { ExperienceStore, NewExperienceCard } from '../core/memory/experience-store'
 import { induceCardsFromSession } from '../core/memory/learn-from-session'
 const StoreClass = typeof Store === 'function' ? Store : ((Store as any).default as typeof Store)
@@ -884,6 +885,10 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
     })
 
     const onTrace = (input: TraceStepInput): void => {
+      // 给每步打上当时的活动窗口上下文（同步读缓存，不阻塞）；业务层已显式提供时不覆盖
+      if (!input.window) {
+        input.window = getActiveWindowContextSync(appType)
+      }
       const step = recorder.record(input)
       if (!step) return
 

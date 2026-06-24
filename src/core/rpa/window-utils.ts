@@ -2,6 +2,7 @@ import { screen } from 'electron'
 import activeWin from 'active-win'
 import { AppType } from './types'
 import { captureWechatWindow } from './screenshot-utils'
+import { TraceWindow } from '../trace/trace-types'
 
 const IS_WINDOWS = process.platform === 'win32'
 const IS_MAC = process.platform === 'darwin'
@@ -215,5 +216,45 @@ export function getWindowInfoSync(appType: AppType): {
   return {
     bounds: cached.result.bounds,
     scaleFactor: cached.result.display?.scaleFactor || 1
+  }
+}
+
+/**
+ * 同步读取当前活动窗口的轨迹上下文（appId / 标题 / 操作面），供 TraceRecorder 给每步打 window 标签。
+ * 只读 measureLayout 时已填充的内存缓存，不发起任何系统调用，因此可安全用在同步的 record() 热路径上；
+ * 缓存为空（会话刚启动还没测过布局）或字段缺失时返回 undefined——window 是可选字段，留空即可。
+ * 字段提取对两种底层窗口对象做兼容：macOS active-win（owner.bundleId/name + title）、
+ * Windows node-window-manager（getTitle() + path/processId）。
+ */
+export function getActiveWindowContextSync(appType: AppType): TraceWindow | undefined {
+  try {
+    const cachedWin = wechatWindowInfoCache.get(appType)?.result?.wechatWindow
+    const win = cachedWin as PlatformWindow | undefined
+    if (!win) return undefined
+
+    // macOS active-win 形状：{ title, owner: { name, bundleId, path } }
+    if (win.owner) {
+      const appId = win.owner.bundleId || win.owner.name
+      return {
+        appId: typeof appId === 'string' ? appId : undefined,
+        title: typeof win.title === 'string' ? win.title : undefined,
+        surface: 'desktop'
+      }
+    }
+
+    // Windows node-window-manager 形状：{ getTitle(), path, processId }
+    const title = typeof win.getTitle === 'function' ? win.getTitle() : win.title
+    const appId = win.path
+      ? String(win.path).split(/[\\/]/).pop()
+      : win.processId !== undefined
+        ? String(win.processId)
+        : undefined
+    return {
+      appId: appId || undefined,
+      title: typeof title === 'string' ? title : undefined,
+      surface: 'desktop'
+    }
+  } catch {
+    return undefined
   }
 }
