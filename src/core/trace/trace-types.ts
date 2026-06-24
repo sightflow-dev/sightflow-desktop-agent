@@ -10,7 +10,41 @@ import { AppType } from '../rpa/types'
 export type TraceActor = 'agent' | 'human'
 export type TracePhase = 'observe' | 'think' | 'act' | 'verify'
 export type TraceOutcomeStatus = 'ok' | 'fail' | 'skip'
-export type TraceActionKind = 'click' | 'send' | 'measure' | 'wait'
+// 通用电脑操作动作词表：从 IM 专用（click/send/measure/wait）泛化到任意桌面/浏览器，
+// 让同一套 work-trace 既能记微信回复，也能记网页操作（navigate）、应用切换（switch_app）。
+export type TraceActionKind =
+  | 'click'
+  | 'type'
+  | 'scroll'
+  | 'key'
+  | 'drag'
+  | 'navigate'
+  | 'switch_app'
+  | 'send'
+  | 'measure'
+  | 'wait'
+
+/** 目标元素的可访问性身份 —— 跨应用录制/回放的锚点（浏览器走 selector，桌面走 a11y role/name）。 */
+export interface TraceElement {
+  /** a11y role（button / textbox …）或 DOM tag */
+  role?: string
+  /** 可访问名称 / label / 文本 */
+  name?: string
+  /** 元素当前值 */
+  value?: string
+  /** 浏览器 CSS/XPath，或桌面控件路径 */
+  selector?: string
+}
+
+/** 当时的活动窗口 / 应用上下文 —— 让一条轨迹能跨应用归属（哪个 App、哪个窗口、桌面还是浏览器）。 */
+export interface TraceWindow {
+  /** bundle id / 进程名 */
+  appId?: string
+  /** 窗口标题 */
+  title?: string
+  /** 操作面：桌面原生应用 or 浏览器页面 */
+  surface?: 'desktop' | 'browser'
+}
 
 export interface TraceSessionMeta {
   sessionId: string
@@ -33,8 +67,12 @@ export interface TraceAction {
   kind: TraceActionKind
   /** 屏幕坐标（click 类动作） */
   target?: [number, number]
-  /** 动作负载（send 的文本等） */
+  /** 动作负载（send / type 的文本等） */
   payload?: string
+  /** 目标元素的可访问性身份（跨应用录制/回放用） */
+  element?: TraceElement
+  /** navigate 动作的目标 URL */
+  url?: string
 }
 
 export interface TraceOutcome {
@@ -52,6 +90,8 @@ export interface TraceStep {
   phase: TracePhase
   /** 一句话概述，时间轴 UI 直接展示 */
   summary: string
+  /** 当时的活动窗口/应用上下文（跨应用轨迹的关键字段） */
+  window?: TraceWindow
   screen?: { screenshotPath: string }
   reasoning?: TraceReasoning
   action?: TraceAction
@@ -67,6 +107,8 @@ export interface TraceStepInput {
   actor?: TraceActor
   phase: TracePhase
   summary: string
+  /** 当时的活动窗口/应用上下文（可选；桌面侧由 active-win 提供，浏览器侧由页面提供） */
+  window?: TraceWindow
   screenshotBase64?: string
   reasoning?: TraceReasoning
   action?: TraceAction

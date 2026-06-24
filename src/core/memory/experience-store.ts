@@ -39,6 +39,18 @@ export interface NewExperienceCard {
   evidence?: { sessionId?: string; stepIds?: string[] }
 }
 
+// ── 检索 / 门控调参 ──
+/** recency 指数衰减半衰期（毫秒）：14 天前的卡片新近度权重降到一半 */
+const RECENCY_HALF_LIFE_MS = 14 * 24 * 60 * 60 * 1000
+/** 三因子打分权重：相关度优先，其次重要度，再次新近度 */
+const W_RECENCY = 1
+const W_IMPORTANCE = 1.5
+const W_RELEVANCE = 2
+/** Voyager 门控：积累到这么多次引用后才考虑因低成功率而停用（证据门槛，避免误杀新卡片） */
+const RETIRE_MIN_USES = 8
+/** 成功率低于此阈值才自动停用 */
+const RETIRE_MAX_SUCCESS_RATE = 0.25
+
 export class ExperienceStore {
   private cards: ExperienceCard[] | null = null
 
@@ -53,12 +65,28 @@ export class ExperienceStore {
   }
 
   getActiveCardBriefs(): MemoryCardBrief[] {
-    return this.getActiveCards().map((card) => ({
-      cardId: card.cardId,
-      scenario: card.scenario,
-      guidance: card.guidance,
-      rationale: card.rationale || undefined
-    }))
+    return this.getActiveCards().map(toBrief)
+  }
+
+  /**
+   * 运行时检索：取与当前场景最相关的 top-K 张卡片（替代「全量注入」，控制 prompt 体积 = 上下文压缩的第一步）。
+   * 打分参考 Generative-Agents 的 recency + importance + relevance 三因子：
+   *   - recency    新近度，按创建时间指数衰减（半衰期 14 天）
+   *   - importance 重要度，用卡片历史成功率（Laplace 平滑，新卡片给中性先验，不被埋没）
+   *   - relevance  相关度，query 与卡片文本的词法重合（暂用词法代理；接入 embeddings 后可升级为语义）
+   * query 当前传入 appType；后续可换成「appType + OCR/场景文本」。
+   */
+  getRelevantCards(query: string, topK = 5): MemoryCardBrief[] {
+    const active = this.getActiveCards()
+    if (active.length <= topK) return active.map(toBrief)
+
+    const now = Date.now()
+    const queryTokens = tokenize(query)
+    return active
+      .map((card) => ({ card, score: scoreCard(card, queryTokens, now) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK)
+      .map((scored) => toBrief(scored.card))
   }
 
   addCards(inputs: NewExperienceCard[]): ExperienceCard[] {
@@ -100,7 +128,11 @@ export class ExperienceStore {
     return true
   }
 
-  /** 一次注入后的效果回写：被引用即 used+1，回复成功发送再 success+1 */
+  /**
+   * 一次注入后的效果回写：被引用即 used+1，回复成功发送再 success+1。
+   * Voyager 式技能库门控：当一张卡片积累了足够证据（used≥RETIRE_MIN_USES）却长期低成功率
+   * （成功率<RETIRE_MAX_SUCCESS_RATE）时自动停用——只保留「真的有用」的经验，避免坏经验持续污染注入。
+   */
   recordUsage(cardIds: string[], success: boolean): void {
     const cards = this.load()
     let changed = false
@@ -110,6 +142,17 @@ export class ExperienceStore {
       card.stats.used += 1
       if (success) card.stats.success += 1
       changed = true
+
+      if (
+        card.enabled &&
+        card.stats.used >= RETIRE_MIN_USES &&
+        card.stats.success / card.stats.used < RETIRE_MAX_SUCCESS_RATE
+      ) {
+        card.enabled = false
+        console.warn(
+          `[ExperienceStore] 经验卡片 ${card.cardId} 成功率过低（${card.stats.success}/${card.stats.used}），已自动停用`
+        )
+      }
     }
     if (changed) this.flush()
   }
@@ -137,4 +180,46 @@ export class ExperienceStore {
       console.error('[ExperienceStore] 经验卡片写入失败:', error)
     }
   }
+}
+
+function toBrief(card: ExperienceCard): MemoryCardBrief {
+  return {
+    cardId: card.cardId,
+    scenario: card.scenario,
+    guidance: card.guidance,
+    rationale: card.rationale || undefined
+  }
+}
+
+/** Generative-Agents 风格三因子打分：recency × importance × relevance 加权求和（各项归一化到 0..1）。 */
+function scoreCard(card: ExperienceCard, queryTokens: string[], now: number): number {
+  const ageMs = Math.max(0, now - card.createdAt)
+  const recency = Math.pow(0.5, ageMs / RECENCY_HALF_LIFE_MS)
+  // Laplace 平滑：未使用过的卡片成功率取中性 0.5，不被埋没也不被高估
+  const importance = (card.stats.success + 1) / (card.stats.used + 2)
+  const relevance = lexicalRelevance(queryTokens, card)
+  return W_RECENCY * recency + W_IMPORTANCE * importance + W_RELEVANCE * relevance
+}
+
+/** 词法相关度：query token 在卡片文本中命中的比例（0..1）。embeddings 接入后可替换为语义相似度。 */
+function lexicalRelevance(queryTokens: string[], card: ExperienceCard): number {
+  if (queryTokens.length === 0) return 0
+  const haystack = `${card.scenario} ${card.guidance} ${card.rationale}`.toLowerCase()
+  const hits = queryTokens.filter((token) => haystack.includes(token)).length
+  return hits / queryTokens.length
+}
+
+/** 轻量分词：英文按非字母数字切分，中文按单字切分，去重去空。 */
+function tokenize(text: string): string[] {
+  const tokens = new Set<string>()
+  for (const part of text.toLowerCase().split(/[^a-z0-9一-鿿]+/)) {
+    if (!part) continue
+    if (/^[a-z0-9]+$/.test(part)) {
+      tokens.add(part)
+    } else {
+      // 含中文：逐字加入（中文无空格，单字命中比整段更稳）
+      for (const ch of part) if (/[一-鿿]/.test(ch)) tokens.add(ch)
+    }
+  }
+  return [...tokens]
 }

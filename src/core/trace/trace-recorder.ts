@@ -79,6 +79,7 @@ export class TraceRecorder {
       actor: input.actor ?? 'agent',
       phase: input.phase,
       summary: input.summary,
+      window: input.window,
       reasoning: input.reasoning,
       action: input.action,
       outcome: input.outcome

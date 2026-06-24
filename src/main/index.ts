@@ -155,6 +155,9 @@ function getTraceRecorder(): TraceRecorder {
   return traceRecorderInstance
 }
 
+/** 每轮 provider 调用最多注入的经验卡片数（top-K 检索上限，控制 prompt 体积）。 */
+const MAX_INJECTED_CARDS = 5
+
 function getExperienceStore(): ExperienceStore {
   if (!experienceStoreInstance) {
     experienceStoreInstance = new ExperienceStore(join(worktraceBaseDir(), 'memory', 'cards.json'))
@@ -906,7 +909,7 @@ async function startEngineCore(rawConfig?: any): Promise<SkillStartResult> {
       initialState: createInitialGenericChannelState(),
       onLog: log,
       onTrace,
-      getMemoryCards: () => getExperienceStore().getActiveCardBriefs(),
+      getMemoryCards: () => getExperienceStore().getRelevantCards(appType, MAX_INJECTED_CARDS),
       onSessionEnd: () => recorder.endSession()
     })
 
