@@ -6,6 +6,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ProviderAdapter, ProviderEvent, ProviderInput } from '../core/session-types'
 
 export const BUILTIN_DOUBAO_PROVIDER_ID = 'volcengine-ark'
+export const BUILTIN_ATLASCLOUD_PROVIDER_ID = 'atlascloud'
+const BUILTIN_PROVIDER_IDS = new Set([
+  BUILTIN_DOUBAO_PROVIDER_ID,
+  BUILTIN_ATLASCLOUD_PROVIDER_ID
+])
 
 /**
  * 内置 doubao（火山方舟）provider 的资源目录。
@@ -132,6 +137,10 @@ export async function installProviderFromUrl(manifestUrl: string): Promise<Provi
     throw new Error('配置清单地址不能为空')
   }
 
+  if (normalizedUrl.startsWith('builtin://')) {
+    return installBuiltinProviderFromUrl(normalizedUrl)
+  }
+
   const manifestContent = await readUrlText(normalizedUrl)
   const manifest = validateManifest(JSON.parse(manifestContent))
   const entryUrl = new URL(manifest.entry, normalizedUrl).toString()
@@ -156,6 +165,25 @@ export async function installProviderFromUrl(manifestUrl: string): Promise<Provi
   }
 }
 
+async function installBuiltinProviderFromUrl(manifestUrl: string): Promise<ProviderInstallResult> {
+  const providerId = normalizeBuiltinProviderId(manifestUrl.slice('builtin://'.length))
+  if (!BUILTIN_PROVIDER_IDS.has(providerId)) {
+    throw new Error(`未知内置聊天服务: ${providerId}`)
+  }
+
+  const manifest = await getBuiltinProviderManifestRaw(providerId)
+  const installed = await getBuiltinProviderInstalledInfo(providerId)
+  if (!manifest || !installed) {
+    throw new Error(`内置聊天服务资源缺失: ${providerId}`)
+  }
+
+  return { installed, manifest }
+}
+
+function normalizeBuiltinProviderId(id: string): string {
+  return id === 'doubao' ? BUILTIN_DOUBAO_PROVIDER_ID : id
+}
+
 export async function getInstalledProviderManifest(
   installed: InstalledProviderInfo | null | undefined
 ): Promise<ProviderBundleManifest | null> {
@@ -170,9 +198,9 @@ export async function getInstalledProviderManifest(
   }
 }
 
-/** 读取内置 doubao 的原始 manifest（保留 apiKey 字段，供调试 / 校验） */
-export async function getBuiltinDoubaoManifestRaw(): Promise<ProviderBundleManifest | null> {
-  const dir = getBuiltinProviderDir(BUILTIN_DOUBAO_PROVIDER_ID)
+/** 读取内置 provider 的原始 manifest（保留 apiKey 字段，供调试 / 校验） */
+export async function getBuiltinProviderManifestRaw(id: string): Promise<ProviderBundleManifest | null> {
+  const dir = getBuiltinProviderDir(id)
   const manifestFile = path.join(dir, 'manifest.json')
   try {
     const content = await readFile(manifestFile, 'utf8')
@@ -180,6 +208,11 @@ export async function getBuiltinDoubaoManifestRaw(): Promise<ProviderBundleManif
   } catch {
     return null
   }
+}
+
+/** 读取内置 doubao 的原始 manifest（保留 apiKey 字段，供调试 / 校验） */
+export async function getBuiltinDoubaoManifestRaw(): Promise<ProviderBundleManifest | null> {
+  return getBuiltinProviderManifestRaw(BUILTIN_DOUBAO_PROVIDER_ID)
 }
 
 /**
@@ -209,10 +242,10 @@ export async function getBuiltinDoubaoManifestForUi(): Promise<ProviderBundleMan
 }
 
 /** 内置 doubao 的虚拟 installed 描述（用于 provider:getInstalled 的回退） */
-export async function getBuiltinDoubaoInstalledInfo(): Promise<InstalledProviderInfo | null> {
-  const raw = await getBuiltinDoubaoManifestRaw()
+export async function getBuiltinProviderInstalledInfo(id: string): Promise<InstalledProviderInfo | null> {
+  const raw = await getBuiltinProviderManifestRaw(id)
   if (!raw) return null
-  const dir = getBuiltinProviderDir(BUILTIN_DOUBAO_PROVIDER_ID)
+  const dir = getBuiltinProviderDir(id)
   return {
     id: raw.id,
     name: raw.name,
@@ -220,6 +253,11 @@ export async function getBuiltinDoubaoInstalledInfo(): Promise<InstalledProvider
     entryFile: path.join(dir, raw.entry),
     installedAt: '0'
   }
+}
+
+/** 内置 doubao 的虚拟 installed 描述（用于 provider:getInstalled 的回退） */
+export async function getBuiltinDoubaoInstalledInfo(): Promise<InstalledProviderInfo | null> {
+  return getBuiltinProviderInstalledInfo(BUILTIN_DOUBAO_PROVIDER_ID)
 }
 
 /** 直接加载内置 doubao provider；调用方负责传入合并好的 config（含 apiKey） */
