@@ -175,6 +175,45 @@ const BUILTIN_PROVIDER_CATALOG: ProviderCatalogItem[] = [
         }
       ]
     }
+  },
+  {
+    id: 'atlascloud',
+    name: 'Atlas Cloud',
+    description: '内置 OpenAI-compatible 聊天 Provider，支持截图分析和自动回复。',
+    version: '1.0.0',
+    manifestUrl: 'builtin://atlascloud',
+    capabilities: ['chat'],
+    configSchema: {
+      fields: [
+        {
+          key: 'apiKey',
+          label: 'API Key',
+          type: 'password',
+          required: true,
+          placeholder: '输入 Atlas Cloud API Key'
+        },
+        {
+          key: 'model',
+          label: '模型',
+          type: 'select',
+          required: true,
+          defaultValue: 'qwen/qwen3.5-flash',
+          options: [
+            { label: 'Qwen3.5 Flash', value: 'qwen/qwen3.5-flash' },
+            { label: 'Qwen3 VL 235B', value: 'qwen/qwen3-vl-235b-a22b-thinking' },
+            { label: 'Gemini 3.5 Flash', value: 'google/gemini-3.5-flash' },
+            { label: 'Grok 4.3', value: 'xai/grok-4.3' }
+          ],
+          hint: '这些模型在 Atlas Cloud 模型目录中支持 text + image 输入。'
+        },
+        {
+          key: 'systemPrompt',
+          label: '系统提示词',
+          type: 'textarea',
+          placeholder: '你是一个桌面聊天自动回复助手。根据截图中的聊天内容，生成合适的回复...'
+        }
+      ]
+    }
   }
 ]
 
@@ -559,11 +598,12 @@ function BottomBar({
 }) {
   const handleStart = useCallback(async () => {
     const settings = (await window.electron?.invoke('settings:getAll')) as AppSettings | undefined
-    if (!settings?.vision?.apiKey) {
-      showToast(t('control.start.novisionkey'), 'error')
+    if (!settings) {
+      showToast(t('toast.startFailed'), 'error')
       return
     }
-    // 没装自定义 provider → 走内置 doubao（getInstalled 会返回 isBuiltinDefault: true）
+    // 没装自定义 provider → 走内置 doubao（getInstalled 会返回 isBuiltinDefault: true）；
+    // 其他内置/自定义 provider 使用自身 configSchema 校验。
     const providerInfo = (await window.electron?.invoke('provider:getInstalled')) as {
       manifest: ProviderManifest | null
       isBuiltinDefault?: boolean

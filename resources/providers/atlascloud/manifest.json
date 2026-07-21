@@ -1,0 +1,36 @@
+{
+  "apiVersion": 1,
+  "id": "atlascloud",
+  "name": "Atlas Cloud",
+  "version": "1.0.0",
+  "entry": "provider.bundle.js",
+  "moduleType": "module",
+  "capabilities": ["chat"],
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "apiKey": {
+        "type": "password",
+        "title": "接口密钥",
+        "description": "Atlas Cloud API Key，建议通过 ATLASCLOUD_API_KEY 管理。"
+      },
+      "model": {
+        "type": "select",
+        "title": "模型名称",
+        "default": "qwen/qwen3.5-flash",
+        "enum": [
+          "qwen/qwen3.5-flash",
+          "qwen/qwen3-vl-235b-a22b-thinking",
+          "google/gemini-3.5-flash",
+          "xai/grok-4.3"
+        ]
+      },
+      "systemPrompt": {
+        "type": "string",
+        "title": "系统提示词",
+        "default": ""
+      }
+    },
+    "required": ["apiKey"]
+  }
+}
